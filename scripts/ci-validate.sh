@@ -45,6 +45,8 @@ py_files+=(
   scripts/test-encoding-dsv4-issue21.py
   scripts/test-suppress-stops-in-reasoning.py
   scripts/test-assistant-final-continuation.py
+  scripts/benchmark-kv-offload.py
+  scripts/test-benchmark-kv-offload.py
   scripts/spec-acceptance.py
   scripts/test-spec-acceptance.py
   scripts/test-ruler-lite-pad.py
@@ -78,6 +80,8 @@ python3 scripts/test-suppress-stops-in-reasoning.py -q
 ok "test-suppress-stops-in-reasoning"
 python3 scripts/test-assistant-final-continuation.py -q
 ok "test-assistant-final-continuation"
+python3 scripts/test-benchmark-kv-offload.py -q
+ok "test-benchmark-kv-offload"
 python3 scripts/test-spec-acceptance.py -q
 ok "test-spec-acceptance"
 python3 scripts/test-ruler-lite-pad.py -q
