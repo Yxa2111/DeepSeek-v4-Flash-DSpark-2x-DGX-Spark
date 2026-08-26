@@ -36,6 +36,11 @@ dspark_build_experimental_args() {
       dspark_require_uint KV_OFFLOAD_PYTHONHASHSEED \
         "${KV_OFFLOAD_PYTHONHASHSEED:-0}" 0 4294967295 || return $?
 
+      # vLLM rejects OffloadingConnector with PyTorch expandable segments:
+      # the VMM allocator may remap virtual KV addresses after the connector
+      # has pinned/registered them.  This helper runs inside the container
+      # immediately before exec'ing vLLM, so mode-local unsetting is enough.
+      unset PYTORCH_CUDA_ALLOC_CONF
       export PYTHONHASHSEED="${KV_OFFLOAD_PYTHONHASHSEED:-0}"
       KV_OFFLOAD_CONFIG="{\"kv_connector\":\"OffloadingConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"spec_name\":\"TieringOffloadingSpec\",\"cpu_bytes_to_use\":${KV_OFFLOAD_CPU_BYTES:-536870912},\"eviction_policy\":\"lru\",\"offload_prompt_only\":true,\"secondary_tiers\":[{\"type\":\"fs\",\"root_dir\":\"/kv-offload\",\"n_read_threads\":${KV_OFFLOAD_READ_THREADS:-8},\"n_write_threads\":${KV_OFFLOAD_WRITE_THREADS:-4}}]}}"
       KV_TRANSFER_ARGS=(--kv-transfer-config "$KV_OFFLOAD_CONFIG")

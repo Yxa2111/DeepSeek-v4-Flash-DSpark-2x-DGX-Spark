@@ -14,7 +14,7 @@ reset_inputs() {
   unset KV_OFFLOAD_MODE KV_OFFLOAD_CPU_BYTES KV_OFFLOAD_READ_THREADS
   unset KV_OFFLOAD_WRITE_THREADS KV_OFFLOAD_PYTHONHASHSEED
   unset DSPARK_KV_OFFLOAD_DIAG DSPARK_SPECULATION DRAFT_SAMPLE_METHOD
-  unset MTP_NUM_TOKENS MAX_NUM_SEQS PYTHONHASHSEED
+  unset MTP_NUM_TOKENS MAX_NUM_SEQS PYTHONHASHSEED PYTORCH_CUDA_ALLOC_CONF
 }
 
 reset_inputs
@@ -32,12 +32,14 @@ reset_inputs
 KV_OFFLOAD_MODE=fs-poc
 DSPARK_SPECULATION=off
 MAX_NUM_SEQS=6
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 if dspark_build_experimental_args \
   && [ "${#KV_TRANSFER_ARGS[@]}" -eq 2 ] \
   && [ "${KV_TRANSFER_ARGS[0]}" = "--kv-transfer-config" ] \
   && [ "${#SPECULATIVE_ARGS[@]}" -eq 0 ] \
   && [ "$MAX_CUDAGRAPH_CAPTURE_SIZE" -eq 6 ] \
   && [ "$PYTHONHASHSEED" = 0 ] \
+  && [ -z "${PYTORCH_CUDA_ALLOC_CONF+x}" ] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"spec_name":"TieringOffloadingSpec"'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"root_dir":"/kv-offload"'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"offload_prompt_only":true'* ]] \

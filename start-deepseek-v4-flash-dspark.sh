@@ -948,9 +948,36 @@ print_resolved_profile
 echo "Syncing DSpark deployment files to ${WORKER_HOST}:${WORKER_DIR}"
 ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR"
 if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
-  mkdir -p -- "$KV_OFFLOAD_ROOT"
+  # Docker creates a missing bind-mount source as root.  That is easy to hit
+  # after first running the control case (offload disabled), because the
+  # compose file still declares the KV volume.  Repair only the exact lab
+  # root, then verify that the service account can create cache files.
+  if ! { mkdir -p -- "$KV_OFFLOAD_ROOT" 2>/dev/null && [ -w "$KV_OFFLOAD_ROOT" ]; }; then
+    docker run --rm --user 0:0 --entrypoint /bin/sh \
+      --volume "$KV_OFFLOAD_ROOT:/kv-offload-root" \
+      "$DSPARK_VLLM_IMAGE" -c \
+      'chown "$1:$2" /kv-offload-root && chmod 0755 /kv-offload-root' \
+      sh "$(id -u)" "$(id -g)"
+  fi
+  [ -w "$KV_OFFLOAD_ROOT" ] || {
+    echo "KV offload root is not writable after preparation: $KV_OFFLOAD_ROOT" >&2
+    exit 1
+  }
   _remote_kv_root="$(printf '%q' "$WORKER_KV_OFFLOAD_ROOT")"
-  ssh "$WORKER_HOST" "mkdir -p -- $_remote_kv_root"
+  ssh "$WORKER_HOST" "
+    set -e
+    if ! { mkdir -p -- $_remote_kv_root 2>/dev/null && test -w $_remote_kv_root; }; then
+      docker run --rm --user 0:0 --entrypoint /bin/sh \
+        --volume $_remote_kv_root:/kv-offload-root \
+        $(printf '%q' "$DSPARK_VLLM_IMAGE") -c \
+        'chown \"\$1:\$2\" /kv-offload-root && chmod 0755 /kv-offload-root' \
+        sh \"\$(id -u)\" \"\$(id -g)\"
+    fi
+    test -w $_remote_kv_root || {
+      echo 'KV offload root is not writable after preparation: $_remote_kv_root' >&2
+      exit 1
+    }
+  "
 fi
 scp "$COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_COMPOSE_FILE}"
 # Stream into a private sibling, then atomically replace the worker env file.
