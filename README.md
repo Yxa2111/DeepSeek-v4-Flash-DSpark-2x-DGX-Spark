@@ -513,6 +513,7 @@ when the corresponding live behavior is outside the test scope.
 | `scripts/benchmark-0731.py` | Prompt × concurrency sweep |
 | `scripts/verify-responses-api-live.py` | Strict Responses, multi-turn cache, and disconnect gates |
 | [docs/ENVS.md](docs/ENVS.md) | Anemll vs Stage-C env matrix |
+| [docs/KV_OFFLOAD_EXPERIMENT.md](docs/KV_OFFLOAD_EXPERIMENT.md) | Experimental NVMe KV offload boundary, switches, and A/B gates |
 | [docs/PATCHES.md](docs/PATCHES.md) | Keys / #27 / #22 notes |
 | `patches/` | Issue hotfixes applied at container start |
 | `docker-compose.stage-c.override.yml` | Stage-C-only env injection |

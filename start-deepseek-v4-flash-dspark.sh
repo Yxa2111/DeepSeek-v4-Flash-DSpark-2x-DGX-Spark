@@ -157,6 +157,13 @@ VLLM_PORT="$((10#$VLLM_PORT))"
 
 source "$SCRIPT_DIR/dspark-numeric-knobs.sh"
 dspark_validate_numeric_knobs "$_dspark_env_clean" || exit $?
+if [ ! -f "$SCRIPT_DIR/patches/kv-offload-config.sh" ]; then
+  echo "Missing $SCRIPT_DIR/patches/kv-offload-config.sh" >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/patches/kv-offload-config.sh"
+dspark_build_experimental_args || exit $?
 # Keep PORT as a backwards-compatible alias, but use VLLM_PORT internally.
 PORT="$VLLM_PORT"
 DEFAULT_THINKING="${DEFAULT_THINKING:-low}"
@@ -237,6 +244,19 @@ VLLM_HOST_IP="${VLLM_HOST_IP:-$MASTER_ADDR}"
 WORKER_VLLM_HOST_IP="${WORKER_VLLM_HOST_IP:-$WORKER_HOST}"
 WORKER_DIR="${WORKER_SCRIPT_DIR:-${WORKER_DIR:-$SCRIPT_DIR}}"
 WORKER_HF_CACHE="${WORKER_HF_CACHE:-${HF_CACHE:-}}"
+KV_OFFLOAD_ROOT="${KV_OFFLOAD_ROOT:-$HOME/.cache/dspark-kv-offload}"
+WORKER_KV_OFFLOAD_ROOT="${WORKER_KV_OFFLOAD_ROOT:-$KV_OFFLOAD_ROOT}"
+if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
+  for _kv_root in "$KV_OFFLOAD_ROOT" "$WORKER_KV_OFFLOAD_ROOT"; do
+    case "$_kv_root" in
+      /*) ;;
+      *) echo "KV offload roots must be absolute paths (got: $_kv_root)" >&2; exit 2 ;;
+    esac
+    case "$_kv_root" in
+      *:*|*[$'\r\n']*) echo "KV offload roots must not contain colon or newlines (got: $_kv_root)" >&2; exit 2 ;;
+    esac
+  done
+fi
 # Per-node CX7/RoCE pins (3-node ring: facing ports often differ by hostname).
 # Set WORKER_NCCL_* in the head .env; start script injects them on remote compose.
 # Do not put WORKER_* first in docker-compose substitution — that is not rank-aware.
@@ -703,6 +723,7 @@ remote_nccl_env() {
     "$WORKER_NCCL_IB_GID_INDEX" \
     "$VLLM_HOST" \
     "$VLLM_PORT"
+  printf ' KV_OFFLOAD_ROOT=%q' "$WORKER_KV_OFFLOAD_ROOT"
 }
 
 compose_base() {
@@ -719,6 +740,7 @@ compose_base() {
     GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION" \
     DSPARK_MODEL="$DSPARK_MODEL" \
     DSPARK_REVISION="${DSPARK_REVISION:-}" \
+    KV_OFFLOAD_ROOT="$KV_OFFLOAD_ROOT" \
     ENABLE_VLLM_GB10_PATCH="$ENABLE_VLLM_GB10_PATCH" \
     VLLM_GB10_PATCH_DIR="$VLLM_GB10_PATCH_DIR" \
     GB10_HYBRID_NVFP4_M_THRESHOLD="${GB10_HYBRID_NVFP4_M_THRESHOLD:-128}" \
@@ -789,6 +811,12 @@ print_resolved_profile() {
   echo "  max batched tokens: ${MAX_NUM_BATCHED_TOKENS:-8192}"
   echo "  gpu memory utilization: ${GPU_MEMORY_UTILIZATION:-0.80} (text default ${GPU_MEMORY_UTILIZATION_TEXT:-0.835} / vision default ${GPU_MEMORY_UTILIZATION_VISION:-0.80})"
   echo "  mtp speculative tokens: ${MTP_NUM_TOKENS:-5} (dspark_block_size min is 5)"
+  echo "  speculation: ${DSPARK_SPECULATION:-dspark}"
+  echo "  KV offload: ${KV_OFFLOAD_MODE:-off} (diag ${DSPARK_KV_OFFLOAD_DIAG:-0})"
+  if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
+    echo "  KV roots: head=$KV_OFFLOAD_ROOT worker=$WORKER_KV_OFFLOAD_ROOT"
+    echo "  KV staging: ${KV_OFFLOAD_CPU_BYTES:-536870912} bytes; IO threads read=${KV_OFFLOAD_READ_THREADS:-8} write=${KV_OFFLOAD_WRITE_THREADS:-4}"
+  fi
   echo "  default thinking: $DEFAULT_THINKING (off/low/high/max)"
   echo "  issue31 GPU thinking_token_budget hotfix: ${DSPARK_ENABLE_ISSUE31_GPU_HOTFIX:-0} (0=stock V2 / 1=apply)"
   echo "  issue133 Triton specialization hotfix: will apply on start"
@@ -919,6 +947,11 @@ print_resolved_profile
 
 echo "Syncing DSpark deployment files to ${WORKER_HOST}:${WORKER_DIR}"
 ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR"
+if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
+  mkdir -p -- "$KV_OFFLOAD_ROOT"
+  _remote_kv_root="$(printf '%q' "$WORKER_KV_OFFLOAD_ROOT")"
+  ssh "$WORKER_HOST" "mkdir -p -- $_remote_kv_root"
+fi
 scp "$COMPOSE_FILE" "${WORKER_HOST}:${REMOTE_COMPOSE_FILE}"
 # Stream into a private sibling, then atomically replace the worker env file.
 ssh "$WORKER_HOST" "
@@ -956,7 +989,7 @@ if [ -f "$DSPARK_SPIN_WAIT_HOTFIX" ]; then
   scp "$DSPARK_SPIN_WAIT_HOTFIX" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-gb10-spin-wait.sh"
 fi
 # DSV4 v0.27 .sh hotfixes — entrypoint applies them before exec vllm (issue #38).
-for _hf_sync in hotfix-dsv4-mtp-buffer-50312.sh hotfix-dsv4-skip-topk-49486.sh hotfix-dsv4-dense-prefill-indexer-48407.sh hotfix-dsv4-skip-empty-c128-48957.sh hotfix-dsv4-flashmla-workspace-50298.sh hotfix-dsv4-grammar-advance.sh hotfix-vllm-redact-api-key-log.sh; do
+for _hf_sync in kv-offload-config.sh hotfix-dsv4-mtp-buffer-50312.sh hotfix-dsv4-skip-topk-49486.sh hotfix-dsv4-dense-prefill-indexer-48407.sh hotfix-dsv4-skip-empty-c128-48957.sh hotfix-dsv4-flashmla-workspace-50298.sh hotfix-dsv4-grammar-advance.sh hotfix-vllm-redact-api-key-log.sh; do
   if [ -f "$SCRIPT_DIR/patches/$_hf_sync" ]; then
     echo "Syncing $_hf_sync to ${WORKER_HOST}:${WORKER_DIR}/patches/"
     ssh "$WORKER_HOST" "mkdir -p '${REMOTE_WORKER_DIR}/patches'"

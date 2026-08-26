@@ -113,12 +113,21 @@ echo "  max model len: ${MAX_MODEL_LEN:-1048576}"
 
 source "$SCRIPT_DIR/dspark-numeric-knobs.sh"
 dspark_validate_numeric_knobs || exit $?
+if [ ! -f "$SCRIPT_DIR/patches/kv-offload-config.sh" ]; then
+  echo "Missing $SCRIPT_DIR/patches/kv-offload-config.sh" >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/patches/kv-offload-config.sh"
+dspark_build_experimental_args || exit $?
 
 echo "  max num seqs: ${MAX_NUM_SEQS:-6}"
 echo "  max batched tokens: ${MAX_NUM_BATCHED_TOKENS:-8192}"
 echo "  gpu memory utilization: ${GPU_MEMORY_UTILIZATION} (text ${GPU_MEMORY_UTILIZATION_TEXT:-0.835} / vision ${GPU_MEMORY_UTILIZATION_VISION:-0.80})"
 echo "  spec tokens (MTP_NUM_TOKENS): ${MTP_NUM_TOKENS:-5} with draft_sample_method=${DRAFT_SAMPLE_METHOD} (min 5 = dspark_block_size)"
-echo "  cudagraph capture size: $(( ${MAX_NUM_SEQS:-6} * (${MTP_NUM_TOKENS:-5} + 1) )) (max_num_seqs * (mtp + 1))"
+echo "  speculation: ${DSPARK_SPECULATION:-dspark}"
+echo "  KV offload: ${KV_OFFLOAD_MODE:-off} (diag ${DSPARK_KV_OFFLOAD_DIAG:-0})"
+echo "  cudagraph capture size: $MAX_CUDAGRAPH_CAPTURE_SIZE"
 echo "  breakable cudagraph: ${VLLM_USE_BREAKABLE_CUDAGRAPH:-0}"
 echo "  dspark slot clamp: ${DSPARK_SLOT_CLAMP:-1}"
 echo "  sampling override: none (no --override-generation-config; --generation-config vllm only)"
@@ -132,4 +141,4 @@ env -u MASTER_PORT -u NODE_RANK -u HEADLESS -u WORKER_HOST -u MASTER_ADDR \
   DSPARK_MODEL="$DSPARK_MODEL" \
   DSPARK_REVISION="${DSPARK_REVISION:-}" \
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config \
-  | grep -E -- '--max-model-len|--max-num-seqs|--max-num-batched-tokens|--max-cudagraph-capture-size|--gpu-memory-utilization|--master-port|--kv-cache-dtype|--speculative-config|--async-scheduling|--enable-chunked-prefill|--generation-config|--revision|image:|VLLM_USE_B12X_WO_PROJECTION|VLLM_USE_BREAKABLE_CUDAGRAPH|VLLM_USE_FLASHINFER_SAMPLER|MTP_NUM_TOKENS|DRAFT_SAMPLE_METHOD|DSPARK_REVISION'
+  | grep -E -- '--max-model-len|--max-num-seqs|--max-num-batched-tokens|--max-cudagraph-capture-size|--gpu-memory-utilization|--master-port|--kv-cache-dtype|--speculative-config|--kv-transfer-config|--async-scheduling|--enable-chunked-prefill|--generation-config|--revision|image:|VLLM_USE_B12X_WO_PROJECTION|VLLM_USE_BREAKABLE_CUDAGRAPH|VLLM_USE_FLASHINFER_SAMPLER|MTP_NUM_TOKENS|DRAFT_SAMPLE_METHOD|DSPARK_REVISION|DSPARK_SPECULATION|KV_OFFLOAD_MODE|DSPARK_KV_OFFLOAD_DIAG'

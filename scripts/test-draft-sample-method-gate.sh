@@ -188,7 +188,7 @@ rendered_env, script = svc["environment"], svc["command"][2]
 
 start = script.find('case "$${DRAFT_SAMPLE_METHOD')
 spec = script.find("SPECULATIVE_CONFIG=", start)
-end = script.find('; case "$${DEFAULT_THINKING', spec)
+end = script.find(";", spec)
 if min(start, spec, end) < 0:
     print("could not locate the gate in the rendered entrypoint")
     sys.exit(1)
