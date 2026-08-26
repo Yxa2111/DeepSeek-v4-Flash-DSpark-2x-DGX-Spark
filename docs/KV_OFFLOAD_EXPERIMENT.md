@@ -36,6 +36,22 @@ The filesystem tier currently has no disk-capacity eviction policy. Use a
 dedicated test directory, record its size before and after every case, and
 remove it only as an explicit cleanup step.
 
+Create a private lab env from the current production env without editing the
+source file or printing its secrets:
+
+```bash
+LAB_DSPARK_VLLM_IMAGE=dspark-vllm-gx10:kv-offload-diag-phase0 \
+LAB_WORKER_DIR=/home/yxa/kv-offload-lab/miaai \
+LAB_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/head \
+LAB_WORKER_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/worker \
+  ./scripts/create-kv-offload-lab-env.sh \
+  /home/yxa/dsv4-2x/.env.dspark .env.dspark
+```
+
+The generated file is mode 600, removes old values for every experimental key,
+and appends one validated override for each. Use a separate Compose project
+name for the lab so its containers cannot alias the production project.
+
 ## First two-node matrix
 
 Use identical token IDs and one test image digest for all rows:

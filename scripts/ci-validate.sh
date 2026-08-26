@@ -21,6 +21,8 @@ for f in \
   scripts/ci-validate.sh \
   scripts/verify-overlay-sources.sh \
   scripts/test-draft-sample-method-gate.sh \
+  scripts/create-kv-offload-lab-env.sh \
+  scripts/test-create-kv-offload-lab-env.sh \
   scripts/test-kv-offload-config.sh \
   scripts/test-nccl-fabric-passthrough.sh \
   scripts/test-nccl-ib-hca-gid-resolve.sh \
@@ -106,6 +108,8 @@ bash scripts/verify-overlay-sources.sh
 ok "verify-overlay-sources"
 bash scripts/test-draft-sample-method-gate.sh -q
 ok "test-draft-sample-method-gate"
+bash scripts/test-create-kv-offload-lab-env.sh
+ok "test-create-kv-offload-lab-env"
 bash scripts/test-kv-offload-config.sh
 ok "test-kv-offload-config"
 bash scripts/test-nccl-fabric-passthrough.sh -q
