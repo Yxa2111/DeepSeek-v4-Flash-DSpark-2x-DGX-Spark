@@ -1,8 +1,9 @@
 # NVMe KV offload experiment
 
-Status: Step 04 implementation. Defaults remain `KV_OFFLOAD_MODE=off` and
-`DSPARK_SPECULATION=dspark`. `fs-rank0` is an explicit opt-in and requires an
-Anemll image carrying patch 0005 or later.
+Status: Step 06 in progress. Defaults remain `KV_OFFLOAD_MODE=off` and
+`DSPARK_SPECULATION=dspark`. `nvme-local` is the primary process-lifetime
+parked-session candidate and requires an Anemll image carrying patch 0006;
+`fs-rank0` remains the restart-persistent prefix experiment.
 
 ## Repository boundary
 
@@ -18,34 +19,38 @@ Anemll image carrying patch 0005 or later.
 
 | Variable | Default | Experimental value | Purpose |
 |---|---:|---:|---|
-| `KV_OFFLOAD_MODE` | `off` | `fs-rank0` | Add filesystem L2 plus multi-node rank-zero staging |
-| `KV_OFFLOAD_ROOT` | node-local cache path | absolute path | Head-node NVMe directory |
-| `WORKER_KV_OFFLOAD_ROOT` | head value | absolute path | Worker-node NVMe directory |
-| `KV_OFFLOAD_CPU_BYTES` | `536870912` | bytes | Small UMA staging tier, not capacity expansion |
-| `KV_OFFLOAD_READ_THREADS` | `8` | 1-128 | Filesystem read-priority workers |
-| `KV_OFFLOAD_WRITE_THREADS` | `4` | 1-128 | Filesystem write-priority workers |
-| `KV_OFFLOAD_PYTHONHASHSEED` | `0` | fixed uint32 | Stable block filenames across restart |
-| `KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES` | `67108864` | 1-256 MiB | Hard upper bound for each TP relay payload |
+| `KV_OFFLOAD_MODE` | `off` | `nvme-local` | Per-rank process-lifetime local NVMe swapping |
+| `KV_OFFLOAD_ROOT` | node-local cache path | absolute path | Head rank slot-file directory |
+| `WORKER_KV_OFFLOAD_ROOT` | head value | absolute path | Worker rank slot-file directory |
+| `KV_OFFLOAD_DISK_BYTES` | 64 GiB | 1-160 GiB | Preallocated capacity per rank/node |
+| `KV_OFFLOAD_DISK_BUFFER_SLOTS` | `2` | 1-8 | Bounded aligned rows per transfer direction |
+| `KV_OFFLOAD_USE_PAGE_CACHE` | `0` | `0` or `1` | Keep `0` on Spark UMA |
+| `KV_OFFLOAD_PREALLOCATE_DISK` | `1` | `0` or `1` | Keep `1` so ENOSPC is a startup failure |
 | `DSPARK_KV_OFFLOAD_DIAG` | `0` | `1` | Metadata-only Anemll packed/rank/key logs |
 | `DSPARK_SPECULATION` | `dspark` | `off` | Target-only control that omits `--speculative-config` |
 
-`fs-rank0` deliberately uses `offload_prompt_only=true`,
+`nvme-local` deliberately disables page cache and uses only bounded aligned
+staging rows. It is not restart-persistent. The older `fs-rank0` mode uses
+`KV_OFFLOAD_CPU_BYTES`, read/write thread, stable-hash, and relay-chunk options;
+it deliberately uses `offload_prompt_only=true`,
 `distributed_staging=rank0`, and
 `kv_load_failure_policy=recompute`. Decode-phase KV may be recomputed; a failed
 external load must not corrupt or terminate an Agent turn.
 
-The filesystem tier currently has no disk-capacity eviction policy. Use a
-dedicated test directory, record its size before and after every case, and
-remove it only as an explicit cleanup step.
+Use a dedicated test directory and record its allocated bytes before and after
+every case. The local slot file has a hard capacity and is ephemeral; the
+generic filesystem tier still has no disk-capacity eviction policy.
 
 Create a private lab env from the current production env without editing the
 source file or printing its secrets:
 
 ```bash
-LAB_DSPARK_VLLM_IMAGE=dspark-vllm-gx10:kv-offload-rank-zero-staging \
+LAB_DSPARK_VLLM_IMAGE=dspark-vllm-gx10:kv-offload-local-nvme \
 LAB_WORKER_DIR=/home/yxa/kv-offload-lab/miaai \
-LAB_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/head \
-LAB_WORKER_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/worker \
+LAB_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/head-local \
+LAB_WORKER_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/worker-local \
+LAB_KV_OFFLOAD_MODE=nvme-local \
+LAB_KV_OFFLOAD_DISK_BYTES=34359738368 \
   ./scripts/create-kv-offload-lab-env.sh \
   /home/yxa/dsv4-2x/.env.dspark .env.dspark
 ```
@@ -56,7 +61,7 @@ and appends one validated override for each. Its safe first-boot profile is
 boot warmup, and `restart: no`. Use a separate Compose project name for the lab
 so its containers cannot alias the production project.
 
-## First two-node matrix
+## Completed Step 04 matrix (historical generic tier)
 
 Use identical token IDs and one test image digest for all rows:
 
@@ -90,7 +95,7 @@ requires all of the following:
   variance and is not assumed bit-identical;
 - no diagnostic record reports `bounds_ok=false`.
 
-## Decision sequence
+## Step 04 diagnostic sequence (completed)
 
 1. If whole-packed bounds and sizing differ across ranks, fix allocation/view
    ownership first.
@@ -102,5 +107,8 @@ requires all of the following:
 5. After correctness, add disk capacity/eviction and measure write
    amplification before any production admission-control work.
 
-The completed Step 04 record and exact live measurements are in
-[`KV_OFFLOAD_PRODUCTION_STEP_04.md`](KV_OFFLOAD_PRODUCTION_STEP_04.md).
+The completed Step 04 restart-prefix record is in
+[`KV_OFFLOAD_PRODUCTION_STEP_04.md`](KV_OFFLOAD_PRODUCTION_STEP_04.md). The
+local-NVMe implementation, live capacity measurements, and head-node failure
+are recorded in
+[`KV_OFFLOAD_PRODUCTION_STEP_05.md`](KV_OFFLOAD_PRODUCTION_STEP_05.md).
