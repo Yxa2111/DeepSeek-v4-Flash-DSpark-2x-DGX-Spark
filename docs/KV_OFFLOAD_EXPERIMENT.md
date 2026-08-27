@@ -133,3 +133,6 @@ and dual-rank NVMe evidence are in
 The coordinated scheduler-first purge contract, CPU gates and live fail-closed
 preflights are in
 [`KV_OFFLOAD_PRODUCTION_STEP_25.md`](KV_OFFLOAD_PRODUCTION_STEP_25.md).
+The wrong-identity rejection, exact-project convergence and successful
+same-identity prefix recovery are in
+[`KV_OFFLOAD_PRODUCTION_STEP_26.md`](KV_OFFLOAD_PRODUCTION_STEP_26.md).
