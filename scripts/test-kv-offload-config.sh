@@ -13,6 +13,7 @@ bad() { printf '  FAIL %s\n' "$*" >&2; fail=$((fail + 1)); }
 reset_inputs() {
   unset KV_OFFLOAD_MODE KV_OFFLOAD_CPU_BYTES KV_OFFLOAD_READ_THREADS
   unset KV_OFFLOAD_WRITE_THREADS KV_OFFLOAD_PYTHONHASHSEED
+  unset KV_OFFLOAD_CACHE_IDENTITY
   unset KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES
   unset KV_OFFLOAD_DISK_BYTES KV_OFFLOAD_DISK_BUFFER_SLOTS
   unset KV_OFFLOAD_DISK_QUEUE_DEPTH KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS
@@ -50,10 +51,24 @@ if dspark_build_experimental_args \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_max_store_blocks":64'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"use_page_cache":false'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"preallocate_disk":true'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_persistence":false'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"lazy_offload":false'* ]]; then
   ok "nvme-local builds bounded per-rank direct-I/O tier"
 else
   bad "nvme-local argument contract"
+fi
+
+reset_inputs
+KV_OFFLOAD_MODE=nvme-persistent
+KV_OFFLOAD_CACHE_IDENTITY=dsv4-0731-r9e165c30-nvfp4-dspark-tp2-kv09
+KV_OFFLOAD_PYTHONHASHSEED=0
+if dspark_build_experimental_args \
+  && [ "$PYTHONHASHSEED" = 0 ] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_persistence":true'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_cache_identity":"dsv4-0731-r9e165c30-nvfp4-dspark-tp2-kv09"'* ]]; then
+  ok "nvme-persistent exports stable hashing and an explicit cache identity"
+else
+  bad "nvme-persistent argument contract"
 fi
 
 reset_inputs
@@ -97,6 +112,9 @@ expect_reject "unknown speculation mode rejected" DSPARK_SPECULATION=random
 expect_reject "zero read threads rejected" KV_OFFLOAD_MODE=fs-poc KV_OFFLOAD_READ_THREADS=0
 expect_reject "oversized CPU staging rejected" KV_OFFLOAD_MODE=fs-poc KV_OFFLOAD_CPU_BYTES=68719476737
 expect_reject "non-numeric hash seed rejected" KV_OFFLOAD_MODE=fs-poc KV_OFFLOAD_PYTHONHASHSEED=random
+expect_reject "persistent identity required" KV_OFFLOAD_MODE=nvme-persistent
+expect_reject "persistent identity injection rejected" KV_OFFLOAD_MODE=nvme-persistent 'KV_OFFLOAD_CACHE_IDENTITY=$(id)'
+expect_reject "persistent random hash seed rejected" KV_OFFLOAD_MODE=nvme-persistent KV_OFFLOAD_CACHE_IDENTITY=valid KV_OFFLOAD_PYTHONHASHSEED=random
 expect_reject "undersized relay chunk rejected" KV_OFFLOAD_MODE=fs-rank0 KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES=1048575
 expect_reject "oversized relay chunk rejected" KV_OFFLOAD_MODE=fs-rank0 KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES=268435457
 expect_reject "undersized NVMe capacity rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BYTES=1073741823

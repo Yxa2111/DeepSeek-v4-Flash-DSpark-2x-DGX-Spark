@@ -29,6 +29,7 @@ LAB_WORKER_KV_OFFLOAD_ROOT='/lab/worker-kv' \
 [ "$(grep -c '^WORKER_SCRIPT_DIR=/lab/worker\\ dir$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^KV_OFFLOAD_MODE=fs-rank0$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES=67108864$' "$target_env")" -eq 1 ]
+[ "$(grep -c "^KV_OFFLOAD_CACHE_IDENTITY=''$" "$target_env")" -eq 1 ]
 [ "$(grep -c '^DSPARK_SPECULATION=dspark$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^DSPARK_RESTART_POLICY=no$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^MAX_MODEL_LEN=262144$' "$target_env")" -eq 1 ]

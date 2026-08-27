@@ -246,8 +246,7 @@ WORKER_DIR="${WORKER_SCRIPT_DIR:-${WORKER_DIR:-$SCRIPT_DIR}}"
 WORKER_HF_CACHE="${WORKER_HF_CACHE:-${HF_CACHE:-}}"
 KV_OFFLOAD_ROOT="${KV_OFFLOAD_ROOT:-$HOME/.cache/dspark-kv-offload}"
 WORKER_KV_OFFLOAD_ROOT="${WORKER_KV_OFFLOAD_ROOT:-$KV_OFFLOAD_ROOT}"
-if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ] \
-  || [ "${KV_OFFLOAD_MODE:-off}" = "fs-rank0" ]; then
+if [ "${KV_OFFLOAD_MODE:-off}" != "off" ]; then
   for _kv_root in "$KV_OFFLOAD_ROOT" "$WORKER_KV_OFFLOAD_ROOT"; do
     case "$_kv_root" in
       /*) ;;
@@ -988,8 +987,7 @@ print_resolved_profile
 
 echo "Syncing DSpark deployment files to ${WORKER_HOST}:${WORKER_DIR}"
 ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR"
-if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ] \
-  || [ "${KV_OFFLOAD_MODE:-off}" = "fs-rank0" ]; then
+if [ "${KV_OFFLOAD_MODE:-off}" != "off" ]; then
   # Docker creates a missing bind-mount source as root.  That is easy to hit
   # after first running the control case (offload disabled), because the
   # compose file still declares the KV volume.  Repair only the exact lab

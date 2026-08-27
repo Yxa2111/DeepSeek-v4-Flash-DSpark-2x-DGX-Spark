@@ -37,7 +37,7 @@ dspark_build_experimental_args() {
 
   case "${KV_OFFLOAD_MODE:-off}" in
     off) ;;
-    nvme-local)
+    nvme-local|nvme-persistent)
       dspark_require_uint KV_OFFLOAD_DISK_BYTES \
         "${KV_OFFLOAD_DISK_BYTES:-68719476736}" 1073741824 171798691840 \
         || return $?
@@ -54,11 +54,30 @@ dspark_build_experimental_args() {
       dspark_require_bool01 KV_OFFLOAD_PREALLOCATE_DISK \
         "${KV_OFFLOAD_PREALLOCATE_DISK:-1}" || return $?
 
+      local persistent_fields='"disk_persistence":false'
+      if [ "${KV_OFFLOAD_MODE}" = "nvme-persistent" ]; then
+        dspark_require_uint KV_OFFLOAD_PYTHONHASHSEED \
+          "${KV_OFFLOAD_PYTHONHASHSEED:-0}" 0 4294967295 || return $?
+        if [ -z "${KV_OFFLOAD_CACHE_IDENTITY:-}" ] \
+          || [ "${#KV_OFFLOAD_CACHE_IDENTITY}" -gt 256 ]; then
+          echo "KV_OFFLOAD_CACHE_IDENTITY must be 1-256 characters in nvme-persistent mode" >&2
+          return 2
+        fi
+        case "${KV_OFFLOAD_CACHE_IDENTITY}" in
+          *[!A-Za-z0-9._:@+-]*)
+            echo "KV_OFFLOAD_CACHE_IDENTITY contains unsupported characters" >&2
+            return 2
+            ;;
+        esac
+        export PYTHONHASHSEED="${KV_OFFLOAD_PYTHONHASHSEED:-0}"
+        persistent_fields="\"disk_persistence\":true,\"disk_cache_identity\":\"${KV_OFFLOAD_CACHE_IDENTITY}\""
+      fi
+
       # The connector keeps only two bounded pinned transfer slots in UMA.
       # expandable_segments may remap registered addresses, so it is unsafe
       # for both local NVMe and the older filesystem tier.
       unset PYTORCH_CUDA_ALLOC_CONF
-      KV_OFFLOAD_CONFIG="{\"kv_connector\":\"SimpleCPUOffloadConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"kv_offload_backend\":\"disk\",\"disk_path\":\"/kv-offload/vllm-kv.slots\",\"disk_capacity_bytes\":${KV_OFFLOAD_DISK_BYTES:-68719476736},\"disk_buffer_slots\":${KV_OFFLOAD_DISK_BUFFER_SLOTS:-2},\"disk_queue_depth\":${KV_OFFLOAD_DISK_QUEUE_DEPTH:-2},\"disk_enqueue_timeout_s\":${KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS:-30},\"disk_max_store_blocks\":${KV_OFFLOAD_DISK_MAX_STORE_BLOCKS:-64},\"use_page_cache\":$([ "${KV_OFFLOAD_USE_PAGE_CACHE:-0}" = 1 ] && echo true || echo false),\"preallocate_disk\":$([ "${KV_OFFLOAD_PREALLOCATE_DISK:-1}" = 1 ] && echo true || echo false),\"lazy_offload\":false}}"
+      KV_OFFLOAD_CONFIG="{\"kv_connector\":\"SimpleCPUOffloadConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"kv_offload_backend\":\"disk\",\"disk_path\":\"/kv-offload/vllm-kv.slots\",\"disk_capacity_bytes\":${KV_OFFLOAD_DISK_BYTES:-68719476736},\"disk_buffer_slots\":${KV_OFFLOAD_DISK_BUFFER_SLOTS:-2},\"disk_queue_depth\":${KV_OFFLOAD_DISK_QUEUE_DEPTH:-2},\"disk_enqueue_timeout_s\":${KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS:-30},\"disk_max_store_blocks\":${KV_OFFLOAD_DISK_MAX_STORE_BLOCKS:-64},\"use_page_cache\":$([ "${KV_OFFLOAD_USE_PAGE_CACHE:-0}" = 1 ] && echo true || echo false),\"preallocate_disk\":$([ "${KV_OFFLOAD_PREALLOCATE_DISK:-1}" = 1 ] && echo true || echo false),${persistent_fields},\"lazy_offload\":false}}"
       KV_TRANSFER_ARGS=(--kv-transfer-config "$KV_OFFLOAD_CONFIG")
       ;;
     fs-poc|fs-rank0)
@@ -83,7 +102,7 @@ dspark_build_experimental_args() {
       KV_TRANSFER_ARGS=(--kv-transfer-config "$KV_OFFLOAD_CONFIG")
       ;;
     *)
-      echo "KV_OFFLOAD_MODE must be one of: off, nvme-local, fs-poc, fs-rank0 (got: ${KV_OFFLOAD_MODE})" >&2
+      echo "KV_OFFLOAD_MODE must be one of: off, nvme-local, nvme-persistent, fs-poc, fs-rank0 (got: ${KV_OFFLOAD_MODE})" >&2
       return 2
       ;;
   esac
