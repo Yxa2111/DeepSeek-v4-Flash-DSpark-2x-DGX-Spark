@@ -149,6 +149,27 @@ def log(msg: str) -> None:
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}Z] {msg}", flush=True)
 
 
+def soak_checkpoint(
+    rounds: list[dict],
+    *,
+    complete: bool,
+    interrupted: bool = False,
+    error: str | None = None,
+) -> dict:
+    """Build a truthful durable soak state for partial and terminal reports."""
+    rounds_ok = bool(rounds) and all(r.get("ok") for r in rounds)
+    phase = {
+        "rounds": rounds,
+        "rounds_ok": rounds_ok,
+        "complete": complete,
+        "interrupted": interrupted,
+        "ok": complete and rounds_ok and not interrupted,
+    }
+    if error:
+        phase["error"] = error
+    return phase
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8888/v1")
@@ -289,61 +310,88 @@ def main() -> int:
     soak_deadline = time.time() + args.soak_minutes * 60
     soak_rounds: list[dict] = []
     round_i = 0
-    while time.time() < soak_deadline:
-        round_i += 1
-        remaining = soak_deadline - time.time()
-        log(f"  soak round {round_i} ({remaining / 60:.1f}m left)…")
-        try:
-            prompts = [
-                build_prompt(
-                    args.base_url,
-                    args.model,
-                    args.soak_prompt_tokens,
-                    f"soak-r{round_i}-c{c}",
-                )
-                for c in range(args.soak_concurrency)
-            ]
-            # sequential within round to avoid hammering RAM while building; parallel decode
-            import concurrent.futures
+    report["phases"]["soak"] = soak_checkpoint(soak_rounds, complete=False)
+    save()
+    try:
+        while time.time() < soak_deadline:
+            round_i += 1
+            remaining = soak_deadline - time.time()
+            log(f"  soak round {round_i} ({remaining / 60:.1f}m left)…")
+            try:
+                prompts = [
+                    build_prompt(
+                        args.base_url,
+                        args.model,
+                        args.soak_prompt_tokens,
+                        f"soak-r{round_i}-c{c}",
+                    )
+                    for c in range(args.soak_concurrency)
+                ]
+                # sequential within round to avoid hammering RAM while building; parallel decode
+                import concurrent.futures
 
-            def one(idx: int, prompt: str) -> dict:
-                return chat_stream(
-                    args.base_url,
-                    args.model,
-                    [
-                        {
-                            "role": "user",
-                            "content": prompt + f"\n\nReply with exactly: SOAK_OK {round_i}-{idx}",
-                        }
-                    ],
-                    max_tokens=48,
-                    thinking=False,
-                )
+                def one(idx: int, prompt: str) -> dict:
+                    return chat_stream(
+                        args.base_url,
+                        args.model,
+                        [
+                            {
+                                "role": "user",
+                                "content": prompt + f"\n\nReply with exactly: SOAK_OK {round_i}-{idx}",
+                            }
+                        ],
+                        max_tokens=48,
+                        thinking=False,
+                    )
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=args.soak_concurrency) as pool:
-                futs = [pool.submit(one, i, p) for i, p in enumerate(prompts)]
-                results = [f.result() for f in futs]
-            ok = all(r.get("ok") and "SOAK_OK" in r.get("preview", "").upper() for r in results)
-            med_out = statistics.median(r["output_tok_s"] for r in results)
-            round_rec = {
-                "round": round_i,
-                "ok": ok,
-                "median_output_tok_s": med_out,
-                "results": results,
-            }
-            if not ok:
-                report["failures"].append({"phase": "soak", "round": round_i, "results": results})
-            soak_rounds.append(round_rec)
-            log(f"  {'PASS' if ok else 'FAIL'} round {round_i}: median decode {med_out:.1f} tok/s")
-        except Exception as exc:  # noqa: BLE001
-            soak_rounds.append({"round": round_i, "ok": False, "error": str(exc)})
-            report["failures"].append({"phase": "soak", "round": round_i, "error": str(exc)})
-            log(f"  FAIL round {round_i}: {exc}")
-        report["phases"]["soak"] = {
-            "rounds": soak_rounds,
-            "ok": all(r.get("ok") for r in soak_rounds) and bool(soak_rounds),
-        }
+                with concurrent.futures.ThreadPoolExecutor(max_workers=args.soak_concurrency) as pool:
+                    futs = [pool.submit(one, i, p) for i, p in enumerate(prompts)]
+                    results = [f.result() for f in futs]
+                ok = all(
+                    r.get("ok") and "SOAK_OK" in r.get("preview", "").upper()
+                    for r in results
+                )
+                med_out = statistics.median(r["output_tok_s"] for r in results)
+                round_rec = {
+                    "round": round_i,
+                    "ok": ok,
+                    "median_output_tok_s": med_out,
+                    "results": results,
+                }
+                if not ok:
+                    report["failures"].append(
+                        {"phase": "soak", "round": round_i, "results": results}
+                    )
+                soak_rounds.append(round_rec)
+                log(
+                    f"  {'PASS' if ok else 'FAIL'} round {round_i}: "
+                    f"median decode {med_out:.1f} tok/s"
+                )
+            except Exception as exc:  # noqa: BLE001
+                soak_rounds.append({"round": round_i, "ok": False, "error": str(exc)})
+                report["failures"].append(
+                    {"phase": "soak", "round": round_i, "error": str(exc)}
+                )
+                log(f"  FAIL round {round_i}: {exc}")
+            report["phases"]["soak"] = soak_checkpoint(soak_rounds, complete=False)
+            save()
+    except KeyboardInterrupt:
+        error = "interrupted before configured soak duration elapsed"
+        report["phases"]["soak"] = soak_checkpoint(
+            soak_rounds,
+            complete=False,
+            interrupted=True,
+            error=error,
+        )
+        report["failures"].append({"phase": "soak", "error": error})
+        report["interrupted_at"] = datetime.now(timezone.utc).isoformat()
+        report["ok"] = False
         save()
+        log(f"FAIL soak: {error} → {out}")
+        return 130
+
+    report["phases"]["soak"] = soak_checkpoint(soak_rounds, complete=True)
+    save()
 
     # --- Phase 3: vision while holding long 0731 prefix ---
     if args.skip_vl:

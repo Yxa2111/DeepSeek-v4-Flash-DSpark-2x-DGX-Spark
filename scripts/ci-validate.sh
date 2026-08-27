@@ -50,6 +50,8 @@ py_files+=(
   scripts/test-encoding-dsv4-issue21.py
   scripts/test-suppress-stops-in-reasoning.py
   scripts/test-assistant-final-continuation.py
+  scripts/stability-quick.py
+  scripts/test-stability-quick-state.py
   scripts/benchmark-kv-offload.py
   scripts/test-benchmark-kv-offload.py
   scripts/reproduce-cancelled-concurrency.py
@@ -89,6 +91,8 @@ python3 scripts/test-suppress-stops-in-reasoning.py -q
 ok "test-suppress-stops-in-reasoning"
 python3 scripts/test-assistant-final-continuation.py -q
 ok "test-assistant-final-continuation"
+python3 scripts/test-stability-quick-state.py
+ok "test-stability-quick-state"
 python3 scripts/test-benchmark-kv-offload.py -q
 ok "test-benchmark-kv-offload"
 python3 scripts/test-reproduce-cancelled-concurrency.py -q
