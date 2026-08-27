@@ -43,6 +43,14 @@ The private output is mode 700 with mode-600 files and a SHA-256 manifest; raw
 journals/logs must be reviewed for prompt or secret content before anything is
 copied into git.
 
+MiaAI commit `74eb59b` makes newly generated lab profiles use
+`GPU_MEMORY_UTILIZATION_TEXT=0.80` instead of inheriting the 0.835 text-serving
+default. The value is validated as a decimal strictly between zero and one.
+`0.80` is already supported by this recipe's vision-coexistence profile; here
+it provides more UMA reserve and a smaller GPU-prefix pool, so the first real
+disk-restore proof can force eviction with less total context pressure. It does
+not change the production env.
+
 Run it on the recovered head before restarting the project:
 
 ```bash
@@ -108,9 +116,12 @@ are a different experimental tier and are not deleted by this rollback.
    `journalctl -b -1 -k`, previous-boot warnings, `last -x`, NVRM/Xid, OOM,
    thermal, watchdog, PCIe, filesystem, and old container evidence.
 2. Correct the confirmed failure mechanism before further high-pressure runs.
-3. Repeat the fourth 250K case with memory, swap, temperature, GPU, disk-I/O,
-   and kernel telemetry sampled throughout.
-4. Prove a real disk load after GPU-prefix eviction: increased disk read bytes,
+3. Start a new isolated lab project at 0.80 utilization and record its actual
+   KV token capacity before choosing prompt sizes. Force eviction with the
+   smallest contexts that exceed that pool, while sampling memory, swap,
+   temperature, GPU, disk-I/O, and kernel telemetry throughout. Do not begin by
+   repeating the 4x250K pressure shape.
+4. Prove a real disk load after that bounded GPU-prefix eviction: increased disk read bytes,
    a connector load/hit, lower TTFT than cold prefill, and identical
    target-only output under deterministic settings.
 5. Repeat the ten-client cancel-nine survivor shape across short, 100K, and
