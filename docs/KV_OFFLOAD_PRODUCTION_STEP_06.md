@@ -2,9 +2,9 @@
 
 Date: 2026-08-27
 
-State: in progress. Exact forced-stop cleanup is implemented and tested;
-postmortem, NVMe-restore proof, and soak gates are blocked until the head node
-returns.
+State: complete as the lifecycle and offline-gate record. The recovered-head
+incident analysis and revised live gates continue in
+[`KV_OFFLOAD_PRODUCTION_STEP_07.md`](KV_OFFLOAD_PRODUCTION_STEP_07.md).
 
 ## Lifecycle problem
 
@@ -164,13 +164,15 @@ are a different experimental tier and are not deleted by this rollback.
 
 ## Remaining acceptance gates
 
-1. Recover the head without starting the experiment and archive
-   `journalctl -b -1 -k`, previous-boot warnings, `last -x`, NVRM/Xid, OOM,
-   thermal, watchdog, PCIe, filesystem, and old container evidence.
-2. Correct the confirmed failure mechanism before further high-pressure runs.
-3. Start a new isolated lab project at 0.80 utilization and record its actual
-   KV token capacity before choosing prompt sizes. Force eviction with the
-   smallest contexts that exceed that pool, while sampling memory, swap,
+1. The recovered-head evidence and exact stale-slot cleanup are complete; see
+   Step 07 for the probable UMA-memory-cliff classification and remaining
+   thermal/power uncertainty.
+2. Add and prove the Step 07 node reserve guard before further high-pressure
+   runs.
+3. Start a new isolated lab project below 0.80 utilization, promote only if the
+   settled host reserve is at least 12 GiB, and record its actual KV token
+   capacity before choosing prompt sizes. Force eviction with the smallest
+   contexts that exceed that pool, while sampling memory, swap,
    temperature, GPU, disk-I/O, and kernel telemetry throughout. Do not begin by
    repeating the 4x250K pressure shape.
 4. Prove a real disk load after that bounded GPU-prefix eviction: increased disk read bytes,
