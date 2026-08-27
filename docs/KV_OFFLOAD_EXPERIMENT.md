@@ -6,7 +6,8 @@ two-node guard supervision have passed live tests. Restart-time LRU retention
 now also passes: restored slots are preserved while empty NVMe capacity
 remains, and a fixed-image 64K prefix survived a second TP=2 restart. The
 fail-closed sustained soak was run, but the current unpaced concurrency-2
-hardware envelope was rejected; production promotion remains open.
+hardware envelope was rejected. The current-image 1M profile was also rejected
+at startup by the 12-GiB UMA reserve gate; production promotion remains open.
 Defaults remain `KV_OFFLOAD_MODE=off` and
 `DSPARK_SPECULATION=dspark`. `nvme-local` remains the process-lifetime
 candidate. `nvme-persistent` adds the crash-safe rank manifests and scheduler
@@ -159,3 +160,6 @@ second-restart 64K replay are in
 The fail-closed finite Go task, concurrency-1 control and real 10-to-1
 cancellation convergence result are in
 [`KV_OFFLOAD_PRODUCTION_STEP_32.md`](KV_OFFLOAD_PRODUCTION_STEP_32.md).
+The isolated 1M startup failure, NVRM/guard evidence and exact safe-profile
+rollback are in
+[`KV_OFFLOAD_PRODUCTION_STEP_33.md`](KV_OFFLOAD_PRODUCTION_STEP_33.md).
