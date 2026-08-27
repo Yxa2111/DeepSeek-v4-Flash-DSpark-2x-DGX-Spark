@@ -53,6 +53,9 @@ rank 0 and rank 1 from sharing or overwriting one slot file.
 | `KV_OFFLOAD_MODE` | `off` | `nvme-local` enables this path |
 | `KV_OFFLOAD_DISK_BYTES` | 64 GiB/rank | 1-160 GiB, preallocated on each node |
 | `KV_OFFLOAD_DISK_BUFFER_SLOTS` | 2 | 1-8 rows per transfer direction |
+| `KV_OFFLOAD_DISK_QUEUE_DEPTH` | 2 | 1-64 pending events per direction |
+| `KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS` | 30 | 1-300 s before fail-closed |
+| `KV_OFFLOAD_DISK_MAX_STORE_BLOCKS` | 64 | 1-4096 packed rows per store event |
 | `KV_OFFLOAD_USE_PAGE_CACHE` | `0` | keep `0` on Spark UMA |
 | `KV_OFFLOAD_PREALLOCATE_DISK` | `1` | fail startup on ENOSPC |
 

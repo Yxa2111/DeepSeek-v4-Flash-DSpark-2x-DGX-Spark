@@ -51,6 +51,16 @@ it provides more UMA reserve and a smaller GPU-prefix pool, so the first real
 disk-restore proof can force eviction with less total context pressure. It does
 not change the production env.
 
+Anemll commit `0260ffa` and MiaAI commit `c2c6ae5` close the remaining
+unbounded-work path. The runtime now caps each store event at 64 packed rows,
+keeps at most two queued events per load/store direction, and waits at most 30
+seconds for queue space before failing the engine explicitly. With the live
+roughly 1 MiB packed row, one active store, two queued stores, and one blocked
+enqueue retain at most about 260 MiB/rank before timeout, rather than growing
+with prompt count. The launcher validates all three ranges and passes real JSON
+numbers into the connector. These are runtime/deployment data-plane bounds,
+not Azusa request admission control.
+
 Run it on the recovered head before restarting the project:
 
 ```bash
@@ -77,11 +87,15 @@ Result:
 ```text
 test-stop-kv-offload-cleanup.sh:   13 passed, 0 failed
 test-collect-kv-offload-postmortem.sh: passed
-test-kv-offload-config.sh:         17 passed, 0 failed
+test-kv-offload-config.sh:         20 passed, 0 failed
 test-create-kv-offload-lab-env.sh: passed
 bash syntax checks:                passed
 git diff --check:                  passed
 ```
+
+The exact seven-patch worker image also passed seven backend cases plus one
+bounded-and-resumable scheduler case (`8 passed`). A four-block store was split
+into two events of two rows without losing the deferred blocks.
 
 During Step 05, one stale generic mmap was removed manually only after the
 owning service had stopped:
