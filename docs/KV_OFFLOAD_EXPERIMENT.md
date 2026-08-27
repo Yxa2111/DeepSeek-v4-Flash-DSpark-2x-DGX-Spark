@@ -156,3 +156,6 @@ and recent-prefix persistent replay are in
 The restored-BlockPool LRU root cause, empty-slot allocation proof and
 second-restart 64K replay are in
 [`KV_OFFLOAD_PRODUCTION_STEP_31.md`](KV_OFFLOAD_PRODUCTION_STEP_31.md).
+The fail-closed finite Go task, concurrency-1 control and real 10-to-1
+cancellation convergence result are in
+[`KV_OFFLOAD_PRODUCTION_STEP_32.md`](KV_OFFLOAD_PRODUCTION_STEP_32.md).
