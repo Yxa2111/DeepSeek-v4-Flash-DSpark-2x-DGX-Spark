@@ -61,8 +61,17 @@ b159e5a0c520 qwen3-asr-06b
 ## Cleanup and recovery
 
 The normal exact-project stop path ran after the fault.  It reported success,
-left neither canary container running, removed both exact NVMe slot files, and
-found no residual `vllm_offload_*.mmap` on either node.
+left neither canary container running, and found no residual
+`vllm_offload_*.mmap` on either node.  The launcher then recreated both disk
+backends successfully during restart.
+
+Correction: the immediate post-stop manual slot-absence check used obsolete
+paths (`kv/head` and `kv/worker`) rather than this profile's configured
+`kv-cache/head-local` and `kv-cache/worker-local` roots.  Therefore this step
+does not claim independent pre-restart proof that both old slot files were
+absent; only the exact stop command's success and the subsequent backend
+recreation are established.  The next controlled stop must check the actual
+configured roots before restart.
 
 Fresh guards were armed before restart.  They reported `local_absent` before
 container creation and `running` with a zero peer-failure counter once both
@@ -99,7 +108,9 @@ The live peer-loss functional gate passes:
 - the surviving rank fails closed within the bounded window;
 - the client connection terminates instead of hanging indefinitely;
 - unrelated services are untouched;
-- exact cleanup and normal restart restore a healthy TP2 API.
+- the normal exact cleanup path reports success and restart restores a healthy
+  TP2 API; direct slot-absence evidence remains to be repeated at the corrected
+  roots.
 
 The clean-kernel promotion gate does **not** pass.  At 14:33:30 local time,
 during the worker's restart/warmup, its kernel recorded two new
