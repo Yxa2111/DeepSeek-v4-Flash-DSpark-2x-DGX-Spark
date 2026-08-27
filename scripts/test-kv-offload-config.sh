@@ -14,6 +14,8 @@ reset_inputs() {
   unset KV_OFFLOAD_MODE KV_OFFLOAD_CPU_BYTES KV_OFFLOAD_READ_THREADS
   unset KV_OFFLOAD_WRITE_THREADS KV_OFFLOAD_PYTHONHASHSEED
   unset KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES
+  unset KV_OFFLOAD_DISK_BYTES KV_OFFLOAD_DISK_BUFFER_SLOTS
+  unset KV_OFFLOAD_USE_PAGE_CACHE KV_OFFLOAD_PREALLOCATE_DISK
   unset DSPARK_KV_OFFLOAD_DIAG DSPARK_SPECULATION DRAFT_SAMPLE_METHOD
   unset MTP_NUM_TOKENS MAX_NUM_SEQS PYTHONHASHSEED PYTORCH_CUDA_ALLOC_CONF
 }
@@ -27,6 +29,26 @@ if dspark_build_experimental_args \
   ok "defaults preserve DSpark and leave KV offload disabled"
 else
   bad "default argument contract"
+fi
+
+reset_inputs
+KV_OFFLOAD_MODE=nvme-local
+DSPARK_SPECULATION=dspark
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+if dspark_build_experimental_args \
+  && [ "${#KV_TRANSFER_ARGS[@]}" -eq 2 ] \
+  && [ -z "${PYTORCH_CUDA_ALLOC_CONF+x}" ] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"kv_connector":"SimpleCPUOffloadConnector"'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"kv_offload_backend":"disk"'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_path":"/kv-offload/vllm-kv.slots"'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_capacity_bytes":68719476736'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_buffer_slots":2'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"use_page_cache":false'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"preallocate_disk":true'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"lazy_offload":false'* ]]; then
+  ok "nvme-local builds bounded per-rank direct-I/O tier"
+else
+  bad "nvme-local argument contract"
 fi
 
 reset_inputs
@@ -72,6 +94,11 @@ expect_reject "oversized CPU staging rejected" KV_OFFLOAD_MODE=fs-poc KV_OFFLOAD
 expect_reject "non-numeric hash seed rejected" KV_OFFLOAD_MODE=fs-poc KV_OFFLOAD_PYTHONHASHSEED=random
 expect_reject "undersized relay chunk rejected" KV_OFFLOAD_MODE=fs-rank0 KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES=1048575
 expect_reject "oversized relay chunk rejected" KV_OFFLOAD_MODE=fs-rank0 KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES=268435457
+expect_reject "undersized NVMe capacity rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BYTES=1073741823
+expect_reject "oversized NVMe capacity rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BYTES=171798691841
+expect_reject "invalid disk buffer count rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BUFFER_SLOTS=9
+expect_reject "page-cache flag injection rejected" 'KV_OFFLOAD_MODE=nvme-local' 'KV_OFFLOAD_USE_PAGE_CACHE=$(id)'
+expect_reject "preallocation flag rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_PREALLOCATE_DISK=2
 expect_reject "diagnostic flag injection rejected" 'DSPARK_KV_OFFLOAD_DIAG=$(id)'
 
 if grep -Fq '${KV_OFFLOAD_ROOT:-${HOME}/.cache/dspark-kv-offload}:/kv-offload' \
