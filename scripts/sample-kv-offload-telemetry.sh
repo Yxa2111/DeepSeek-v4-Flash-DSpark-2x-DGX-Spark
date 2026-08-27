@@ -73,8 +73,9 @@ chmod 700 "$OUTPUT_DIR"
 SAMPLES_FILE="$OUTPUT_DIR/samples.tsv"
 START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '%s\n' \
-  $'timestamp_utc\tepoch\tmem_available_kib\tswap_free_kib\tload1\tpsi_mem_some_avg10\tpsi_mem_full_avg10\tcontainer_id\tpid\tcgroup_memory_current\tcgroup_memory_peak\tcgroup_oom\tcgroup_oom_kill\tio_rbytes\tio_wbytes\tio_rios\tio_wios\tmax_temp_millic' \
+  $'timestamp_utc\tepoch\tmem_available_kib\tswap_free_kib\tload1\tpsi_mem_some_avg10\tpsi_mem_full_avg10\tcontainer_id\tpid\tcgroup_memory_current\tcgroup_memory_peak\tcgroup_oom\tcgroup_oom_kill\tio_rbytes\tio_wbytes\tio_rios\tio_wios\tmax_temp_millic\tgpu_temp_c\tgpu_util_percent\tgpu_power_w\tgpu_sm_clock_mhz' \
   > "$SAMPLES_FILE"
+sync -d "$SAMPLES_FILE"
 
 finish() {
   local status=$?
@@ -128,6 +129,28 @@ max_temperature() {
   printf '%s\n' "$maximum"
 }
 
+gpu_sample() {
+  local row
+  local gpu_temp=
+  local gpu_util=
+  local gpu_power=
+  local gpu_clock=
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    row="$(timeout 3 nvidia-smi \
+      --query-gpu=temperature.gpu,utilization.gpu,power.draw,clocks.current.sm \
+      --format=csv,noheader,nounits 2>/dev/null | head -1 || true)"
+    if [ -n "$row" ]; then
+      IFS=, read -r gpu_temp gpu_util gpu_power gpu_clock <<< "$row"
+      gpu_temp="${gpu_temp//[[:space:]]/}"
+      gpu_util="${gpu_util//[[:space:]]/}"
+      gpu_power="${gpu_power//[[:space:]]/}"
+      gpu_clock="${gpu_clock//[[:space:]]/}"
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\n' \
+    "$gpu_temp" "$gpu_util" "$gpu_power" "$gpu_clock"
+}
+
 for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   epoch="$(date +%s)"
@@ -177,11 +200,14 @@ for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
     io_wios="$(cgroup_io_total "$cgroup_root/io.stat" wios)"
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  gpu_values="$(gpu_sample)"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$timestamp" "$epoch" "$mem_available" "$swap_free" "$load1" \
     "$psi_some" "$psi_full" "$container_id" "$pid" "$memory_current" \
     "$memory_peak" "$oom" "$oom_kill" "$io_rbytes" "$io_wbytes" \
-    "$io_rios" "$io_wios" "$(max_temperature)" >> "$SAMPLES_FILE"
+    "$io_rios" "$io_wios" "$(max_temperature)" "$gpu_values" \
+    >> "$SAMPLES_FILE"
+  sync -d "$SAMPLES_FILE"
 
   if [ "$sample" -lt $((MAX_SAMPLES - 1)) ]; then
     sleep "$INTERVAL_SECONDS"

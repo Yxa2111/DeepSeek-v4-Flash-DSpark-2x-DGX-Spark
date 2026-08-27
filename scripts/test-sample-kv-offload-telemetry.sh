@@ -17,7 +17,10 @@ fi
 [ "$(stat -c %a "$TMP_DIR/run")" = 700 ]
 [ "$(stat -c %a "$TMP_DIR/run/samples.tsv")" = 600 ]
 [ "$(wc -l < "$TMP_DIR/run/samples.tsv")" -eq 2 ]
+awk -F '\t' 'NF != 22 { exit 1 }' "$TMP_DIR/run/samples.tsv"
 grep -Fq $'cgroup_oom\tcgroup_oom_kill\tio_rbytes\tio_wbytes' \
+  "$TMP_DIR/run/samples.tsv"
+grep -Fq $'max_temp_millic\tgpu_temp_c\tgpu_util_percent\tgpu_power_w\tgpu_sm_clock_mhz' \
   "$TMP_DIR/run/samples.tsv"
 grep -Fq 'project=no-such-kv-project' "$TMP_DIR/run/run.meta"
 sha256sum -c "$TMP_DIR/run/MANIFEST.sha256" >/dev/null

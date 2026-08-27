@@ -9,6 +9,9 @@ services:
     # Issue #38/#39: bring a crashed worker back. Keep grace short — vLLM
     # ignores SIGTERM while loading and a long period hangs `compose stop`.
     restart: ${DSPARK_RESTART_POLICY:-unless-stopped}
+    # On GB10, GPU and host allocations share UMA. Disposable canaries can
+    # opt in to a positive score so the kernel selects vLLM before host daemons.
+    oom_score_adj: ${DSPARK_OOM_SCORE_ADJ:-0}
     stop_grace_period: ${DSPARK_STOP_GRACE:-10s}
 
     # Only rank 0 serves HTTP; the worker runs HEADLESS with no :8888 listener.

@@ -24,6 +24,10 @@ for f in \
   scripts/create-kv-offload-lab-env.sh \
   scripts/test-create-kv-offload-lab-env.sh \
   scripts/test-kv-offload-config.sh \
+  scripts/sample-kv-offload-telemetry.sh \
+  scripts/test-sample-kv-offload-telemetry.sh \
+  scripts/guard-kv-offload-node.sh \
+  scripts/test-guard-kv-offload-node.sh \
   scripts/test-nccl-fabric-passthrough.sh \
   scripts/test-nccl-ib-hca-gid-resolve.sh \
   scripts/boot-shape-warmup.sh \
@@ -116,6 +120,10 @@ bash scripts/test-create-kv-offload-lab-env.sh
 ok "test-create-kv-offload-lab-env"
 bash scripts/test-kv-offload-config.sh
 ok "test-kv-offload-config"
+bash scripts/test-sample-kv-offload-telemetry.sh
+ok "test-sample-kv-offload-telemetry"
+bash scripts/test-guard-kv-offload-node.sh
+ok "test-guard-kv-offload-node"
 bash scripts/test-nccl-fabric-passthrough.sh -q
 ok "test-nccl-fabric-passthrough"
 bash scripts/test-boot-shape-warmup.sh -q

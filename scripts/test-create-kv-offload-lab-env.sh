@@ -39,7 +39,8 @@ LAB_WORKER_KV_OFFLOAD_ROOT='/lab/worker-kv' \
 [ "$(grep -c '^KV_OFFLOAD_DISK_MAX_STORE_BLOCKS=64$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^DSPARK_BOOT_SHAPE_WARMUP=0$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^ENABLE_VL_SIDECAR=0$' "$target_env")" -eq 1 ]
-[ "$(grep -c '^GPU_MEMORY_UTILIZATION_TEXT=0.80$' "$target_env")" -eq 1 ]
+[ "$(grep -c '^GPU_MEMORY_UTILIZATION_TEXT=0.72$' "$target_env")" -eq 1 ]
+[ "$(grep -c '^DSPARK_OOM_SCORE_ADJ=800$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^WORKER_DIR=' "$target_env" || true)" -eq 0 ]
 [ "$(grep -c '^WORKER_SCRIPT_DIR=' "$target_env")" -eq 1 ]
 
@@ -66,5 +67,17 @@ if LAB_DSPARK_VLLM_IMAGE='diag:image' \
   exit 1
 fi
 [ ! -e "$tmp/bad-util.env" ]
+
+if LAB_DSPARK_VLLM_IMAGE='diag:image' \
+  LAB_WORKER_DIR='/lab/worker' \
+  LAB_KV_OFFLOAD_ROOT='/lab/head-kv' \
+  LAB_WORKER_KV_OFFLOAD_ROOT='/lab/worker-kv' \
+  LAB_DSPARK_OOM_SCORE_ADJ='1001' \
+  "$ROOT/scripts/create-kv-offload-lab-env.sh" "$source_env" "$tmp/bad-oom.env" \
+  >/dev/null 2>&1; then
+  echo "FAIL invalid OOM score accepted" >&2
+  exit 1
+fi
+[ ! -e "$tmp/bad-oom.env" ]
 
 echo "KV offload lab env generator tests passed"
