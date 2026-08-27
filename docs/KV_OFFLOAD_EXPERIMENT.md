@@ -111,4 +111,6 @@ The completed Step 04 restart-prefix record is in
 [`KV_OFFLOAD_PRODUCTION_STEP_04.md`](KV_OFFLOAD_PRODUCTION_STEP_04.md). The
 local-NVMe implementation, live capacity measurements, and head-node failure
 are recorded in
-[`KV_OFFLOAD_PRODUCTION_STEP_05.md`](KV_OFFLOAD_PRODUCTION_STEP_05.md).
+[`KV_OFFLOAD_PRODUCTION_STEP_05.md`](KV_OFFLOAD_PRODUCTION_STEP_05.md). Exact
+forced-stop cleanup, rollback, and the remaining production gates are in
+[`KV_OFFLOAD_PRODUCTION_STEP_06.md`](KV_OFFLOAD_PRODUCTION_STEP_06.md).
