@@ -102,6 +102,8 @@ def run_completion(
     text_parts: list[str] = []
     usage: dict[str, int] = {}
     finish_reason = None
+    saw_choice = False
+    saw_done = False
     with urllib.request.urlopen(request, timeout=timeout) as response:
         for raw in response:
             line = raw.decode("utf-8", "replace").strip()
@@ -109,6 +111,7 @@ def run_completion(
                 continue
             payload = line[6:]
             if payload == "[DONE]":
+                saw_done = True
                 break
             event = json.loads(payload)
             if event.get("usage"):
@@ -120,11 +123,24 @@ def run_completion(
             choices = event.get("choices", [])
             if choices and first_event is None:
                 first_event = time.perf_counter()
+            if choices:
+                saw_choice = True
             for choice in choices:
                 text_parts.append(str(choice.get("text", "")))
                 if choice.get("finish_reason"):
                     finish_reason = choice["finish_reason"]
     finished = time.perf_counter()
+    if not saw_done:
+        raise RuntimeError("completion stream ended before SSE [DONE]")
+    if not saw_choice:
+        raise RuntimeError("completion stream ended without a choice event")
+    if finish_reason is None:
+        raise RuntimeError("completion stream ended without a finish reason")
+    required_usage = {"prompt_tokens", "completion_tokens", "total_tokens"}
+    missing_usage = required_usage - usage.keys()
+    if missing_usage:
+        missing = ", ".join(sorted(missing_usage))
+        raise RuntimeError(f"completion stream is missing usage fields: {missing}")
     completion = "".join(text_parts)
     return {
         "ttft_s": (first_event or finished) - started,

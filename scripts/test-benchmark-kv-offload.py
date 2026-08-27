@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import importlib.util
+import json
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 PATH = Path(__file__).with_name("benchmark-kv-offload.py")
@@ -9,6 +11,20 @@ SPEC = importlib.util.spec_from_file_location("benchmark_kv_offload", PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+
+class FakeResponse:
+    def __init__(self, lines):
+        self.lines = lines
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def __iter__(self):
+        return iter(self.lines)
 
 
 class BenchmarkKVOffloadTest(unittest.TestCase):
@@ -33,6 +49,35 @@ unrelated_metric 99
         self.assertEqual(MODULE.make_prompt(pool, 32, 9), MODULE.make_prompt(pool, 32, 9))
         self.assertNotEqual(MODULE.make_prompt(pool, 32, 9), MODULE.make_prompt(pool, 32, 10))
         self.assertEqual(len(MODULE.make_prompt(pool, 17, 9)), 17)
+
+    def test_completion_rejects_stream_eof_before_done(self):
+        response = FakeResponse(
+            [
+                b'data: {"choices": [{"text": "", "finish_reason": null}]}\n',
+            ]
+        )
+        with mock.patch.object(MODULE.urllib.request, "urlopen", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, r"before SSE \[DONE\]"):
+                MODULE.run_completion("http://test", "model", [1], 1, 5)
+
+    def test_completion_accepts_complete_stream_with_usage(self):
+        usage = {
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "total_tokens": 2,
+        }
+        response = FakeResponse(
+            [
+                b'data: {"choices": [{"text": "x", "finish_reason": "length"}]}\n',
+                f"data: {json.dumps({'choices': [], 'usage': usage})}\n".encode(),
+                b"data: [DONE]\n",
+            ]
+        )
+        with mock.patch.object(MODULE.urllib.request, "urlopen", return_value=response):
+            result = MODULE.run_completion("http://test", "model", [1], 1, 5)
+        self.assertEqual(result["usage"], usage)
+        self.assertEqual(result["finish_reason"], "length")
+        self.assertEqual(result["completion_bytes"], 1)
 
 
 if __name__ == "__main__":
