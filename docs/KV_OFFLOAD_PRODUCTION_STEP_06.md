@@ -128,6 +128,15 @@ owning service had stopped:
 It was ephemeral staging and is not recoverable or a restart-persistent prefix
 object. This exact cleanup motivated the automated capture-before-stop rule.
 
+After the head became unreachable, the stopped worker still held the exact
+root-owned file
+`/home/yxa/kv-offload-lab/kv-cache/worker-local/vllm-kv.slots.rank_1`
+(34,359,459,840 bytes, mode 0600). A `/proc/*/fd` scan found no opener. The
+file alone was then removed through a root container bind mount and its absence
+was verified, returning roughly 32 GiB of allocated NVMe space. This ephemeral
+process-lifetime KV is not recoverable. The corresponding head rank file is not
+touched until the head returns and postmortem capture completes.
+
 ## Rollback
 
 Rollback does not require an image rebuild:
