@@ -150,6 +150,7 @@ running on both live nodes, survives its own process exit, retains independently
 checksummed evidence, and does not mutate the serving TP group during guard
 recovery.
 
-The remaining production gate is a sustained concurrent request soak with
-the installed guards active.  That test evaluates serving stability and KV
-reuse; memory and temperature remain containment signals, not the objective.
+The sustained concurrent request soak with the installed guards active was
+run in [`KV_OFFLOAD_PRODUCTION_STEP_30.md`](KV_OFFLOAD_PRODUCTION_STEP_30.md).
+The guards and persistent recovery passed, but the current unpaced
+concurrency-2 hardware envelope failed and remains unqualified.
