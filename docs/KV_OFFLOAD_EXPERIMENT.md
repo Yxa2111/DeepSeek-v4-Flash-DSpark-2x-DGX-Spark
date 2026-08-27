@@ -1,10 +1,12 @@
 # NVMe KV offload experiment
 
-Status: Step 08 node guard complete offline; guarded live revalidation is next.
+Status: restart-persistent deployment mode is implemented offline; the guarded
+TP=2 service-restart proof is next.
 Defaults remain `KV_OFFLOAD_MODE=off` and
-`DSPARK_SPECULATION=dspark`. `nvme-local` is the primary process-lifetime
-parked-session candidate and requires an Anemll image carrying patch 0006;
-`fs-rank0` remains the restart-persistent prefix experiment.
+`DSPARK_SPECULATION=dspark`. `nvme-local` remains the process-lifetime
+candidate. `nvme-persistent` adds the crash-safe rank manifests and scheduler
+index from Anemll patch 0009; `fs-rank0` remains the historical generic-tier
+experiment.
 
 ## Repository boundary
 
@@ -21,6 +23,8 @@ parked-session candidate and requires an Anemll image carrying patch 0006;
 | Variable | Default | Experimental value | Purpose |
 |---|---:|---:|---|
 | `KV_OFFLOAD_MODE` | `off` | `nvme-local` | Per-rank process-lifetime local NVMe swapping |
+| `KV_OFFLOAD_MODE` | `off` | `nvme-persistent` | Per-rank restart-persistent local NVMe swapping |
+| `KV_OFFLOAD_CACHE_IDENTITY` | empty | explicit compatibility ID | Required only for `nvme-persistent` |
 | `KV_OFFLOAD_ROOT` | node-local cache path | absolute path | Head rank slot-file directory |
 | `WORKER_KV_OFFLOAD_ROOT` | head value | absolute path | Worker rank slot-file directory |
 | `KV_OFFLOAD_DISK_BYTES` | 64 GiB | 1-160 GiB | Preallocated capacity per rank/node |
@@ -30,8 +34,9 @@ parked-session candidate and requires an Anemll image carrying patch 0006;
 | `DSPARK_KV_OFFLOAD_DIAG` | `0` | `1` | Metadata-only Anemll packed/rank/key logs |
 | `DSPARK_SPECULATION` | `dspark` | `off` | Target-only control that omits `--speculative-config` |
 
-`nvme-local` deliberately disables page cache and uses only bounded aligned
-staging rows. It is not restart-persistent. The older `fs-rank0` mode uses
+Both packed NVMe modes deliberately disable page cache and use only bounded
+aligned staging rows. `nvme-local` is not restart-persistent. The older
+`fs-rank0` mode uses
 `KV_OFFLOAD_CPU_BYTES`, read/write thread, stable-hash, and relay-chunk options;
 it deliberately uses `offload_prompt_only=true`,
 `distributed_staging=rank0`, and
@@ -120,3 +125,5 @@ The recovered-head unclean-shutdown analysis and revised resource gates are in
 The numeric DGX Spark reserve guard, fsync-backed telemetry, and safer lab
 profile are in
 [`KV_OFFLOAD_PRODUCTION_STEP_08.md`](KV_OFFLOAD_PRODUCTION_STEP_08.md).
+The restart-persistent deployment contract and offline gates are in
+[`KV_OFFLOAD_PRODUCTION_STEP_23.md`](KV_OFFLOAD_PRODUCTION_STEP_23.md).
