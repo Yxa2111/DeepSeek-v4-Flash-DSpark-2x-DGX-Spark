@@ -28,6 +28,8 @@ for f in \
   scripts/test-sample-kv-offload-telemetry.sh \
   scripts/guard-kv-offload-node.sh \
   scripts/test-guard-kv-offload-node.sh \
+  scripts/purge-persistent-kv.sh \
+  scripts/test-purge-persistent-kv.sh \
   scripts/test-stop-kv-offload-cleanup.sh \
   scripts/test-nccl-fabric-passthrough.sh \
   scripts/test-nccl-ib-hca-gid-resolve.sh \
@@ -137,6 +139,8 @@ bash scripts/test-sample-kv-offload-telemetry.sh
 ok "test-sample-kv-offload-telemetry"
 bash scripts/test-guard-kv-offload-node.sh
 ok "test-guard-kv-offload-node"
+bash scripts/test-purge-persistent-kv.sh
+ok "test-purge-persistent-kv"
 bash scripts/test-stop-kv-offload-cleanup.sh
 ok "test-stop-kv-offload-cleanup"
 bash scripts/test-nccl-fabric-passthrough.sh -q
