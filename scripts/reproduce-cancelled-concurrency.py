@@ -56,6 +56,31 @@ def error_summary(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+def parse_completion_sse(raw: bytes) -> tuple[str, str | None, dict[str, int]]:
+    text_parts: list[str] = []
+    finish_reason: str | None = None
+    usage: dict[str, int] = {}
+    for raw_line in raw.splitlines():
+        line = raw_line.decode("utf-8", "replace").strip()
+        if not line.startswith("data: "):
+            continue
+        payload = line[6:]
+        if payload == "[DONE]":
+            continue
+        event = json.loads(payload)
+        if isinstance(event.get("usage"), dict):
+            usage = {
+                key: int(value)
+                for key, value in event["usage"].items()
+                if isinstance(value, (int, float))
+            }
+        for choice in event.get("choices", []):
+            text_parts.append(str(choice.get("text", "")))
+            if choice.get("finish_reason") is not None:
+                finish_reason = str(choice["finish_reason"])
+    return "".join(text_parts), finish_reason, usage
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8888")
@@ -68,6 +93,7 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--seed", type=int, default=53569)
     parser.add_argument("--survivor", type=int, default=0)
+    parser.add_argument("--survivor-trace")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -160,6 +186,13 @@ def main() -> None:
         survivor_body = outputs[args.survivor].read_bytes()
         survivor_done = b"data: [DONE]" in survivor_body
         survivor_sha256 = hashlib.sha256(survivor_body).hexdigest()
+        survivor_text, survivor_finish_reason, survivor_usage = \
+            parse_completion_sse(survivor_body)
+
+    if args.survivor_trace:
+        trace_path = Path(args.survivor_trace)
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        trace_path.write_text(survivor_text, encoding="utf-8")
 
     time.sleep(args.settle_seconds)
     metrics_error: str | None = None
@@ -186,6 +219,13 @@ def main() -> None:
         "survivor_done": survivor_done,
         "survivor_timed_out": timed_out,
         "survivor_sse_sha256": survivor_sha256,
+        "survivor_text_sha256": hashlib.sha256(
+            survivor_text.encode("utf-8")
+        ).hexdigest(),
+        "survivor_text_chars": len(survivor_text),
+        "survivor_finish_reason": survivor_finish_reason,
+        "survivor_usage": survivor_usage,
+        "survivor_trace": args.survivor_trace,
         "elapsed_s": elapsed,
         "final_running": running,
         "final_waiting": waiting,
