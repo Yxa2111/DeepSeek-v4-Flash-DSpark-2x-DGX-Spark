@@ -20,6 +20,9 @@ Options:
   --consecutive COUNT       consecutive breaches required, default 3
   --stop-timeout SEC        Docker graceful-stop timeout, default 20
   --peer-host HOST          optional TP peer to stop for the same project
+  --peer-check-consecutive COUNT
+                            failed peer-container checks before local stop;
+                            0 disables the check, default 0
   -h, --help                show this help
 
 A safety trigger exits 42 after stopping the exact container (or immediately
@@ -37,6 +40,7 @@ MAX_TEMP_MILLIC=90000
 CONSECUTIVE_BREACHES=3
 STOP_TIMEOUT_SECONDS=20
 PEER_HOST=
+PEER_CHECK_CONSECUTIVE=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -49,10 +53,17 @@ while [ "$#" -gt 0 ]; do
     --consecutive) [ "$#" -ge 2 ] || { echo "--consecutive requires a value" >&2; exit 2; }; CONSECUTIVE_BREACHES="$2"; shift 2 ;;
     --stop-timeout) [ "$#" -ge 2 ] || { echo "--stop-timeout requires a value" >&2; exit 2; }; STOP_TIMEOUT_SECONDS="$2"; shift 2 ;;
     --peer-host) [ "$#" -ge 2 ] || { echo "--peer-host requires a value" >&2; exit 2; }; PEER_HOST="$2"; shift 2 ;;
+    --peer-check-consecutive) [ "$#" -ge 2 ] || { echo "--peer-check-consecutive requires a value" >&2; exit 2; }; PEER_CHECK_CONSECUTIVE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+[[ "$PEER_CHECK_CONSECUTIVE" =~ ^[0-9]+$ ]] \
+  || { echo "PEER_CHECK_CONSECUTIVE must be a non-negative integer" >&2; exit 2; }
+if [ "$PEER_CHECK_CONSECUTIVE" -gt 0 ] && [ -z "$PEER_HOST" ]; then
+  echo "--peer-check-consecutive requires --peer-host" >&2
+  exit 2
+fi
 
 [ -n "$OUTPUT_DIR" ] || { echo "--output is required" >&2; exit 2; }
 [[ "$PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
@@ -96,8 +107,9 @@ START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TRIGGER_REASON=none
 STOP_RESULT=not_attempted
 PEER_STOP_RESULT=not_configured
+LAST_PEER_STATE=disabled
 printf '%s\n' \
-  $'timestamp_utc\tmem_available_kib\tmax_temp_millic\tcontainer_id\tlow_mem_count\thigh_temp_count\taction' \
+  $'timestamp_utc\tmem_available_kib\tmax_temp_millic\tcontainer_id\tlow_mem_count\thigh_temp_count\tpeer_state\tpeer_failure_count\taction' \
   > "$SAMPLES_FILE"
 : > "$ACTION_LOG"
 
@@ -124,6 +136,8 @@ finish() {
     printf 'trigger_reason=%s\n' "$TRIGGER_REASON"
     printf 'stop_result=%s\n' "$STOP_RESULT"
     printf 'peer_host=%s\n' "$PEER_HOST"
+    printf 'peer_check_consecutive=%s\n' "$PEER_CHECK_CONSECUTIVE"
+    printf 'last_peer_state=%s\n' "$LAST_PEER_STATE"
     printf 'peer_stop_result=%s\n' "$PEER_STOP_RESULT"
   } > "$OUTPUT_DIR/run.meta"
   sync_file "$OUTPUT_DIR/run.meta"
@@ -228,8 +242,35 @@ EOF
   return 1
 }
 
+peer_project_state() {
+  local remote_command
+
+  remote_command=$(cat <<EOF
+# kv_guard_peer_probe
+set -uo pipefail
+mapfile -t ids < <(docker ps -q \\
+  --filter 'label=com.docker.compose.project=$PROJECT_NAME' \\
+  --filter 'label=com.docker.compose.service=vllm-dspark' 2>/dev/null | awk 'NF' | sort -u)
+if [ "\${#ids[@]}" -gt 1 ]; then
+  echo 'multiple'
+  exit 2
+fi
+cid="\${ids[0]:-}"
+if [ -z "\$cid" ]; then
+  echo 'absent'
+  exit 0
+fi
+[[ "\$cid" =~ ^[a-f0-9]{12,64}$ ]] || { echo 'invalid'; exit 2; }
+echo 'running'
+EOF
+)
+  timeout 6 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=3 \
+    -o ConnectionAttempts=1 "$PEER_HOST" "$remote_command"
+}
+
 low_mem_count=0
 high_temp_count=0
+peer_failure_count=0
 for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   mem_available="$(awk '$1 == "MemAvailable:" { print $2; exit }' "$MEMINFO_PATH")"
@@ -259,6 +300,34 @@ for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
     exit 2
   fi
 
+  peer_state=disabled
+  if [ "$PEER_CHECK_CONSECUTIVE" -gt 0 ]; then
+    if [ -z "$container_id" ]; then
+      peer_state=local_absent
+      peer_failure_count=0
+    else
+      peer_output="$(peer_project_state 2>/dev/null)"
+      peer_status=$?
+      if [ "$peer_status" -eq 0 ] && [ "$peer_output" = running ]; then
+        peer_state=running
+        peer_failure_count=0
+      elif [ "$peer_status" -eq 0 ] && [ "$peer_output" = absent ]; then
+        peer_state=absent
+        peer_failure_count=$((peer_failure_count + 1))
+      elif [ "$peer_output" = multiple ]; then
+        peer_state=multiple
+        peer_failure_count=$((peer_failure_count + 1))
+      elif [ "$peer_output" = invalid ]; then
+        peer_state=invalid
+        peer_failure_count=$((peer_failure_count + 1))
+      else
+        peer_state=unreachable
+        peer_failure_count=$((peer_failure_count + 1))
+      fi
+    fi
+  fi
+  LAST_PEER_STATE="$peer_state"
+
   action=none
   if [ "$low_mem_count" -ge "$CONSECUTIVE_BREACHES" ]; then
     TRIGGER_REASON=low_memory
@@ -266,11 +335,16 @@ for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
   elif [ "$high_temp_count" -ge "$CONSECUTIVE_BREACHES" ]; then
     TRIGGER_REASON=high_temperature
     action=trigger_high_temperature
+  elif [ "$PEER_CHECK_CONSECUTIVE" -gt 0 ] \
+    && [ "$peer_failure_count" -ge "$PEER_CHECK_CONSECUTIVE" ]; then
+    TRIGGER_REASON=peer_unavailable
+    action=trigger_peer_unavailable
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$timestamp" "$mem_available" "$max_temp" "$container_id" \
-    "$low_mem_count" "$high_temp_count" "$action" >> "$SAMPLES_FILE"
+    "$low_mem_count" "$high_temp_count" "$peer_state" \
+    "$peer_failure_count" "$action" >> "$SAMPLES_FILE"
   sync_file "$SAMPLES_FILE"
 
   if [ "$TRIGGER_REASON" != none ]; then
@@ -281,7 +355,11 @@ for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
     else
       STOP_RESULT=no_container
     fi
-    stop_peer_project || action_failed=1
+    if [ "$TRIGGER_REASON" = peer_unavailable ]; then
+      PEER_STOP_RESULT=skipped_peer_unavailable
+    else
+      stop_peer_project || action_failed=1
+    fi
     if [ "$action_failed" -ne 0 ]; then
       echo "failed to stop one or more exact unsafe TP containers" >&2
       exit 1
