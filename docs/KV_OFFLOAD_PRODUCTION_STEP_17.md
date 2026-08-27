@@ -2,8 +2,8 @@
 
 Date: 2026-08-27
 
-State: implementation and CPU-only fault tests complete.  Live two-node fault
-injection is the next independent step.
+State: implementation and CPU-only fault tests complete.  The live two-node
+fault injection passed in Step 28; continuous service installation remains.
 
 ## Gap
 
@@ -86,3 +86,8 @@ the worker's exact canary container.  Accept only if:
 - both ranks can subsequently be cleaned and restarted through the normal
   exact-project path;
 - the restarted service passes health and a small inference request.
+
+This acceptance was completed on the persistent TP=2 profile.  The exact
+timestamps, typed guard states, bounded survivor stop, retained cache and
+successful restart are recorded in
+[`KV_OFFLOAD_PRODUCTION_STEP_28.md`](KV_OFFLOAD_PRODUCTION_STEP_28.md).

@@ -1,8 +1,9 @@
 # NVMe KV offload experiment
 
-Status: TP=2 restart persistence, identity rejection, coordinated purge, and
-one-rank corruption recovery have passed guarded live tests. Fatal runtime
-peer convergence and the sustained concurrency stability gate remain open.
+Status: TP=2 restart persistence, identity rejection, coordinated purge,
+one-rank corruption recovery, and guarded peer-loss convergence have passed
+live tests. Continuous guard installation and the sustained concurrency
+stability gate remain open.
 Defaults remain `KV_OFFLOAD_MODE=off` and
 `DSPARK_SPECULATION=dspark`. `nvme-local` remains the process-lifetime
 candidate. `nvme-persistent` adds the crash-safe rank manifests and scheduler
@@ -140,3 +141,6 @@ same-identity prefix recovery are in
 The deterministic rank-1 corruption, live checksum failure, benchmark
 false-green correction, coordinated purge and clean rebuild are in
 [`KV_OFFLOAD_PRODUCTION_STEP_27.md`](KV_OFFLOAD_PRODUCTION_STEP_27.md).
+The live typed peer-loss trigger, bounded survivor stop, retained cache and
+successful TP restart are in
+[`KV_OFFLOAD_PRODUCTION_STEP_28.md`](KV_OFFLOAD_PRODUCTION_STEP_28.md).
