@@ -36,6 +36,23 @@ class ParseChatSSETest(unittest.TestCase):
         self.assertEqual(finish_reason, "stop")
         self.assertEqual(usage, {"completion_tokens": 3})
 
+    def test_finite_completion_contract(self) -> None:
+        marker = self.module.FINITE_COMPLETION_MARKER
+        self.assertTrue(
+            self.module.completion_contract_ok(
+                "finite-code", "stop", f"answer\n{marker}\n"
+            )
+        )
+        self.assertFalse(
+            self.module.completion_contract_ok("finite-code", "length", marker)
+        )
+        self.assertFalse(
+            self.module.completion_contract_ok("finite-code", "stop", "answer")
+        )
+        self.assertTrue(
+            self.module.completion_contract_ok("migration", "length", "")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

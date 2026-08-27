@@ -15,11 +15,11 @@ from typing import Any
 import urllib.request
 
 
-SYSTEM_PROMPT = (
+MIGRATION_SYSTEM_PROMPT = (
     "You are a senior Go distributed-systems engineer. Think rigorously, avoid "
     "repeating prior analysis, and finish with a concrete implementation plan."
 )
-TASK = """
+MIGRATION_TASK = """
 Design a production migration for this repository from an in-memory scheduler
 to a crash-consistent, sharded scheduler. Cover ownership boundaries, durable
 state, request identity, cancellation, recovery ordering, backpressure,
@@ -27,6 +27,36 @@ observability, rollout, rollback, and tests. Identify race conditions and give
 Go-like pseudocode for the critical state machine. Produce a detailed but
 finite answer; do not repeat a section merely to make it longer.
 """.strip()
+
+FINITE_COMPLETION_MARKER = "FINITE_CODE_TASK_COMPLETE"
+FINITE_SYSTEM_PROMPT = (
+    "You are a senior Go engineer completing one bounded coding task. Think "
+    "briefly and linearly, do not revisit a decision, then deliver the requested "
+    "code and tests."
+)
+FINITE_CODE_TASK = f"""
+Implement a small, self-contained Go transition validator using the repository
+inventory only as background context. Define State with queued, running,
+cancelled, and completed values; define Job with ID, Shard, Generation, and
+State; and implement ValidateTransition(oldJob, newJob Job) error.
+
+The function must reject an empty or changed ID, changed Shard, decreasing
+Generation, any transition out of completed or cancelled, queued directly to
+completed, and running back to queued. It must accept an identical job,
+queued-to-running, queued-to-cancelled, running-to-completed, and
+running-to-cancelled when the other invariants hold.
+
+Return exactly four finite sections: assumptions, one complete validator Go
+file, one table-driven Go test file, and a short explanation of race-safety at
+the caller boundary. Stay below 1,400 words. End the final answer with the
+literal marker {FINITE_COMPLETION_MARKER}. Do not propose additional work and
+do not repeat a section.
+""".strip()
+
+TASK_PROFILES = {
+    "migration": (MIGRATION_SYSTEM_PROMPT, MIGRATION_TASK),
+    "finite-code": (FINITE_SYSTEM_PROMPT, FINITE_CODE_TASK),
+}
 
 
 def request_json(url: str, body: dict[str, object] | None = None) -> dict:
@@ -111,10 +141,25 @@ def metric_value(base_url: str, prefix: str) -> float:
     return total
 
 
+def completion_contract_ok(
+    task_profile: str, finish_reason: str | None, content: str
+) -> bool:
+    if task_profile != "finite-code":
+        return True
+    return (
+        finish_reason == "stop"
+        and bool(content.strip())
+        and content.rstrip().endswith(FINITE_COMPLETION_MARKER)
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8888")
     parser.add_argument("--model", default="deepseek-v4-flash-0731")
+    parser.add_argument(
+        "--task-profile", choices=sorted(TASK_PROFILES), default="migration"
+    )
     parser.add_argument("--concurrency", type=int, default=10)
     parser.add_argument("--context-tokens", type=int, default=32000)
     parser.add_argument("--max-tokens", type=int, default=16384)
@@ -122,6 +167,11 @@ def main() -> None:
     parser.add_argument("--survivor", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--settle-seconds", type=float, default=10)
+    parser.add_argument(
+        "--reasoning-effort", choices=("low", "high", "max"), default="max"
+    )
+    parser.add_argument("--temperature", type=float, default=0.6)
+    parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--reasoning-trace", required=True)
     parser.add_argument("--content-trace", required=True)
     parser.add_argument("--output", required=True)
@@ -135,6 +185,7 @@ def main() -> None:
         parser.error("context-tokens and max-tokens must be positive")
 
     base_url = args.base_url.rstrip("/")
+    system_prompt, task = TASK_PROFILES[args.task_profile]
     repository_context, measured_context_tokens = build_repository_context(
         base_url, args.model, args.context_tokens
     )
@@ -147,23 +198,23 @@ def main() -> None:
             user_prompt = (
                 repository_context
                 + "\n\n"
-                + TASK
+                + task
                 + f"\nRequest lane: {index}."
             )
             body = {
                 "model": args.model,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 "stream": True,
                 "stream_options": {"include_usage": True},
                 "max_tokens": args.max_tokens,
-                "temperature": 0.6,
-                "top_p": 0.95,
+                "temperature": args.temperature,
+                "top_p": args.top_p,
                 "chat_template_kwargs": {
                     "thinking": True,
-                    "reasoning_effort": "max",
+                    "reasoning_effort": args.reasoning_effort,
                 },
             }
             output_path = Path(temp_dir) / f"client-{index}.sse"
@@ -237,6 +288,7 @@ def main() -> None:
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
         "model": args.model,
+        "task_profile": args.task_profile,
         "concurrency": args.concurrency,
         "target_context_tokens": args.context_tokens,
         "measured_context_tokens": measured_context_tokens,
@@ -248,6 +300,9 @@ def main() -> None:
         "survivor_done": b"data: [DONE]" in survivor_raw,
         "survivor_timed_out": timed_out,
         "finish_reason": finish_reason,
+        "completion_contract_ok": completion_contract_ok(
+            args.task_profile, finish_reason, content
+        ),
         "usage": usage,
         "reasoning_chars": len(reasoning),
         "content_chars": len(content),
@@ -255,6 +310,9 @@ def main() -> None:
         "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
         "reasoning_trace": args.reasoning_trace,
         "content_trace": args.content_trace,
+        "reasoning_effort": args.reasoning_effort,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
         "elapsed_s": time.perf_counter() - started,
         "final_running": running,
         "final_waiting": waiting,
@@ -268,6 +326,7 @@ def main() -> None:
         survivor_rc != 0
         or not report["survivor_done"]
         or timed_out
+        or not report["completion_contract_ok"]
         or running
         or waiting
     ):
