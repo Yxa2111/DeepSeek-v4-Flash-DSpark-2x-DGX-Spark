@@ -2,9 +2,11 @@
 
 Status: TP=2 restart persistence, identity rejection, coordinated purge,
 one-rank corruption recovery, guarded peer-loss convergence, and continuous
-two-node guard supervision have passed live tests. The fail-closed sustained
-soak was run, but the current unpaced concurrency-2 hardware envelope was
-rejected; production promotion remains open.
+two-node guard supervision have passed live tests. Restart-time LRU retention
+now also passes: restored slots are preserved while empty NVMe capacity
+remains, and a fixed-image 64K prefix survived a second TP=2 restart. The
+fail-closed sustained soak was run, but the current unpaced concurrency-2
+hardware envelope was rejected; production promotion remains open.
 Defaults remain `KV_OFFLOAD_MODE=off` and
 `DSPARK_SPECULATION=dspark`. `nvme-local` remains the process-lifetime
 candidate. `nvme-persistent` adds the crash-safe rank manifests and scheduler
@@ -151,3 +153,6 @@ rotation and live guard-process restart proof are in
 The fail-closed 30-minute gate attempt, exact guard timeline, normal recovery
 and recent-prefix persistent replay are in
 [`KV_OFFLOAD_PRODUCTION_STEP_30.md`](KV_OFFLOAD_PRODUCTION_STEP_30.md).
+The restored-BlockPool LRU root cause, empty-slot allocation proof and
+second-restart 64K replay are in
+[`KV_OFFLOAD_PRODUCTION_STEP_31.md`](KV_OFFLOAD_PRODUCTION_STEP_31.md).
