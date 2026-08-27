@@ -7,7 +7,8 @@ Usage: guard-kv-offload-node.sh --output DIR [options]
 
 Per-node safety circuit breaker for one isolated KV-offload Compose project.
 It stops only the exact running project container after a numeric host-memory
-or exposed-temperature threshold persists.
+or exposed-temperature threshold persists.  An optional peer host receives the
+same exact-project stop so a TP rank cannot spin after its peer is removed.
 
 Options:
   --output DIR              new or empty private output directory (required)
@@ -18,6 +19,7 @@ Options:
   --max-temp-millic MC      high-temperature threshold, default 90000
   --consecutive COUNT       consecutive breaches required, default 3
   --stop-timeout SEC        Docker graceful-stop timeout, default 20
+  --peer-host HOST          optional TP peer to stop for the same project
   -h, --help                show this help
 
 A safety trigger exits 42 after stopping the exact container (or immediately
@@ -34,6 +36,7 @@ MIN_AVAILABLE_KIB=12582912
 MAX_TEMP_MILLIC=90000
 CONSECUTIVE_BREACHES=3
 STOP_TIMEOUT_SECONDS=20
+PEER_HOST=
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -45,6 +48,7 @@ while [ "$#" -gt 0 ]; do
     --max-temp-millic) [ "$#" -ge 2 ] || { echo "--max-temp-millic requires a value" >&2; exit 2; }; MAX_TEMP_MILLIC="$2"; shift 2 ;;
     --consecutive) [ "$#" -ge 2 ] || { echo "--consecutive requires a value" >&2; exit 2; }; CONSECUTIVE_BREACHES="$2"; shift 2 ;;
     --stop-timeout) [ "$#" -ge 2 ] || { echo "--stop-timeout requires a value" >&2; exit 2; }; STOP_TIMEOUT_SECONDS="$2"; shift 2 ;;
+    --peer-host) [ "$#" -ge 2 ] || { echo "--peer-host requires a value" >&2; exit 2; }; PEER_HOST="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -53,6 +57,10 @@ done
 [ -n "$OUTPUT_DIR" ] || { echo "--output is required" >&2; exit 2; }
 [[ "$PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
   || { echo "--project contains unsupported characters" >&2; exit 2; }
+if [ -n "$PEER_HOST" ] && ! [[ "$PEER_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+  echo "--peer-host contains unsupported characters" >&2
+  exit 2
+fi
 for numeric_name in INTERVAL_SECONDS MAX_SAMPLES MIN_AVAILABLE_KIB \
   MAX_TEMP_MILLIC CONSECUTIVE_BREACHES STOP_TIMEOUT_SECONDS; do
   numeric_value="${!numeric_name}"
@@ -63,10 +71,15 @@ done
 DOCKER_BIN="${KV_GUARD_DOCKER_BIN:-docker}"
 SLEEP_BIN="${KV_GUARD_SLEEP_BIN:-sleep}"
 SYNC_BIN="${KV_GUARD_SYNC_BIN:-sync}"
+SSH_BIN="${KV_GUARD_SSH_BIN:-ssh}"
 MEMINFO_PATH="${KV_GUARD_MEMINFO_PATH:-/proc/meminfo}"
 THERMAL_ROOT="${KV_GUARD_THERMAL_ROOT:-/sys/class/thermal}"
 command -v "$DOCKER_BIN" >/dev/null 2>&1 \
   || { echo "docker command is unavailable: $DOCKER_BIN" >&2; exit 2; }
+if [ -n "$PEER_HOST" ]; then
+  command -v "$SSH_BIN" >/dev/null 2>&1 \
+    || { echo "ssh command is unavailable: $SSH_BIN" >&2; exit 2; }
+fi
 [ -r "$MEMINFO_PATH" ] || { echo "meminfo is unreadable: $MEMINFO_PATH" >&2; exit 2; }
 
 umask 077
@@ -82,6 +95,7 @@ ACTION_LOG="$OUTPUT_DIR/action.log"
 START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TRIGGER_REASON=none
 STOP_RESULT=not_attempted
+PEER_STOP_RESULT=not_configured
 printf '%s\n' \
   $'timestamp_utc\tmem_available_kib\tmax_temp_millic\tcontainer_id\tlow_mem_count\thigh_temp_count\taction' \
   > "$SAMPLES_FILE"
@@ -109,6 +123,8 @@ finish() {
     printf 'consecutive_breaches=%s\n' "$CONSECUTIVE_BREACHES"
     printf 'trigger_reason=%s\n' "$TRIGGER_REASON"
     printf 'stop_result=%s\n' "$STOP_RESULT"
+    printf 'peer_host=%s\n' "$PEER_HOST"
+    printf 'peer_stop_result=%s\n' "$PEER_STOP_RESULT"
   } > "$OUTPUT_DIR/run.meta"
   sync_file "$OUTPUT_DIR/run.meta"
   sync_file "$ACTION_LOG"
@@ -134,13 +150,10 @@ max_temperature() {
 }
 
 project_containers() {
-  {
-    "$DOCKER_BIN" ps -q \
-      --filter "label=com.docker.compose.project=$PROJECT_NAME" \
-      --filter "name=${PROJECT_NAME}-vllm-dspark" 2>/dev/null || true
-    "$DOCKER_BIN" ps -q \
-      --filter "name=${PROJECT_NAME}-vllm-dspark" 2>/dev/null || true
-  } | awk 'NF' | sort -u
+  "$DOCKER_BIN" ps -q \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME" \
+    --filter "label=com.docker.compose.service=vllm-dspark" \
+    2>/dev/null | awk 'NF' | sort -u
 }
 
 stop_exact_container() {
@@ -151,7 +164,7 @@ stop_exact_container() {
     >> "$ACTION_LOG"
   sync_file "$ACTION_LOG"
   if timeout "$((STOP_TIMEOUT_SECONDS + 10))" \
-    "$DOCKER_BIN" stop --time "$STOP_TIMEOUT_SECONDS" "$container_id" \
+    "$DOCKER_BIN" stop --timeout "$STOP_TIMEOUT_SECONDS" "$container_id" \
     >> "$ACTION_LOG" 2>&1; then
     STOP_RESULT=graceful_stop
   else
@@ -170,6 +183,42 @@ stop_exact_container() {
     "$container_id" 2>/dev/null || true)"
   [ "$running" = false ] || { STOP_RESULT=still_running; return 1; }
   return 0
+}
+
+stop_peer_project() {
+  local remote_command
+
+  [ -n "$PEER_HOST" ] || return 0
+  printf '%s stopping peer project %s on %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT_NAME" "$PEER_HOST" \
+    >> "$ACTION_LOG"
+  sync_file "$ACTION_LOG"
+  remote_command=$(cat <<EOF
+set -uo pipefail
+mapfile -t ids < <(docker ps -q \\
+  --filter 'label=com.docker.compose.project=$PROJECT_NAME' \\
+  --filter 'label=com.docker.compose.service=vllm-dspark' 2>/dev/null | awk 'NF' | sort -u)
+if [ "\${#ids[@]}" -gt 1 ]; then
+  echo 'multiple peer containers match exact project' >&2
+  exit 2
+fi
+cid="\${ids[0]:-}"
+[ -n "\$cid" ] || exit 0
+[[ "\$cid" =~ ^[a-f0-9]{12,64}$ ]] || exit 2
+if ! timeout $((STOP_TIMEOUT_SECONDS + 10)) docker stop --timeout $STOP_TIMEOUT_SECONDS "\$cid"; then
+  timeout 10 docker kill "\$cid"
+fi
+[ "\$(docker inspect --format '{{.State.Running}}' "\$cid" 2>/dev/null || true)" = false ]
+EOF
+)
+  if timeout "$((STOP_TIMEOUT_SECONDS + 25))" \
+    "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=10 "$PEER_HOST" \
+    "$remote_command" >> "$ACTION_LOG" 2>&1; then
+    PEER_STOP_RESULT=stopped_or_absent
+    return 0
+  fi
+  PEER_STOP_RESULT=stop_failed
+  return 1
 }
 
 low_mem_count=0
@@ -218,11 +267,17 @@ for ((sample = 0; sample < MAX_SAMPLES; sample++)); do
   sync_file "$SAMPLES_FILE"
 
   if [ "$TRIGGER_REASON" != none ]; then
+    action_failed=0
     if [ -n "$container_id" ]; then
       stop_exact_container "$container_id" \
-        || { echo "failed to stop exact unsafe container" >&2; exit 1; }
+        || action_failed=1
     else
       STOP_RESULT=no_container
+    fi
+    stop_peer_project || action_failed=1
+    if [ "$action_failed" -ne 0 ]; then
+      echo "failed to stop one or more exact unsafe TP containers" >&2
+      exit 1
     fi
     echo "safety trigger: $TRIGGER_REASON ($STOP_RESULT)" >&2
     exit 42
