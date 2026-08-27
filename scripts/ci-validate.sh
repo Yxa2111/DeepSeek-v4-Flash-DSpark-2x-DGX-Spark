@@ -259,6 +259,14 @@ if grep -q 'exit 3' start-deepseek-v4-flash-dspark.sh \
 else
   bad "start missing already-running exit 3 (#72)"
 fi
+if grep -Fq 'startup_ranks_running' start-deepseek-v4-flash-dspark.sh \
+  && grep -Fq 'cleanup_failed_start' start-deepseek-v4-flash-dspark.sh \
+  && grep -Fq 'LEGACY_PROJECT_NAME="$PROJECT_NAME"' start-deepseek-v4-flash-dspark.sh \
+  && grep -Fq 'label=com.docker.compose.service=vllm-dspark' start-deepseek-v4-flash-dspark.sh; then
+  ok "failed TP startup detects split ranks and converges exact project"
+else
+  bad "failed TP startup must detect split ranks and converge exact project"
+fi
 
 # Mounted hotfix files must exist.
 for p in \

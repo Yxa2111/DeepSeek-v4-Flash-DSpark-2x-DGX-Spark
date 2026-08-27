@@ -787,12 +787,50 @@ print_failure_logs() {
   remote_compose "docker compose -p '$PROJECT_NAME' --env-file .env.dspark -f docker-compose.dspark.yml logs --since '$since' vllm-dspark" >&2 || true
 }
 
+cleanup_failed_start() {
+  local stop_script="$SCRIPT_DIR/stop-deepseek-v4-flash-dspark.sh"
+
+  echo "Converging failed TP startup by stopping the exact project on both nodes..." >&2
+  if [ ! -x "$stop_script" ]; then
+    echo "WARN: startup cleanup script is unavailable: $stop_script" >&2
+    return 1
+  fi
+  ENV_FILE="$ENV_FILE" COMPOSE_FILE="$COMPOSE_FILE" \
+    PROJECT_NAME="$PROJECT_NAME" LEGACY_PROJECT_NAME="$PROJECT_NAME" \
+    "$stop_script"
+}
+
 on_error() {
   local status=$?
   trap - ERR
   print_failure_logs
+  cleanup_failed_start || \
+    echo "WARN: failed-start cleanup was incomplete; inspect both exact project ranks." >&2
   exit "$status"
 }
+
+startup_ranks_running() {
+  local head_ids
+  local worker_ids
+
+  head_ids="$(docker ps -q \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME" \
+    --filter "label=com.docker.compose.service=vllm-dspark" \
+    | awk 'NF' | sort -u)"
+  worker_ids="$(ssh "$WORKER_HOST" "docker ps -q \\
+    --filter 'label=com.docker.compose.project=$PROJECT_NAME' \\
+    --filter 'label=com.docker.compose.service=vllm-dspark' \\
+    | awk 'NF' | sort -u")"
+  if [ "$(printf '%s\n' "$head_ids" | awk 'NF {count++} END {print count+0}')" -ne 1 ]; then
+    echo "Startup rank check failed: head does not have exactly one running project container." >&2
+    return 1
+  fi
+  if [ "$(printf '%s\n' "$worker_ids" | awk 'NF {count++} END {print count+0}')" -ne 1 ]; then
+    echo "Startup rank check failed: worker does not have exactly one running project container." >&2
+    return 1
+  fi
+}
+
 
 print_resolved_profile() {
   echo "Resolved DSpark profile:"
@@ -1219,6 +1257,10 @@ for _ in $(seq 1 "$WAIT_ATTEMPTS"); do
     fi
     exit 0
   fi
+  # A TP peer can remain alive indefinitely after the other rank fails its KV
+  # capacity check.  Detect that split state on every API poll; the ERR trap
+  # collects logs and invokes the exact two-node stop/slot cleanup path.
+  startup_ranks_running
   wait_with_startup_logs
 done
 
@@ -1226,4 +1268,6 @@ echo "Timed out waiting for DSpark API. Recent head logs:" >&2
 compose_base 0 "" logs --tail=120 vllm-dspark >&2 || true
 echo "Recent worker logs:" >&2
 remote_compose "docker compose -p '$PROJECT_NAME' --env-file .env.dspark -f docker-compose.dspark.yml logs --tail=120 vllm-dspark" >&2 || true
+cleanup_failed_start || \
+  echo "WARN: timeout cleanup was incomplete; inspect both exact project ranks." >&2
 exit 1
