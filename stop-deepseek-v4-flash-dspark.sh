@@ -98,7 +98,9 @@ capture_project_mmaps() {
   if [ "$where" = "local" ]; then
     output="$(bash -c "$cmd")"
     while IFS= read -r path; do
-      [ -n "$path" ] && remember_offload_mmap_path head "$path"
+      if [ -n "$path" ]; then
+        remember_offload_mmap_path head "$path"
+      fi
     done < <(printf '%s\n' "$output" | sort -u)
   elif [ "${WORKER_REACHABLE:-1}" = "1" ]; then
     if ! output="$(ssh "$WORKER_HOST" "$cmd")"; then
@@ -106,7 +108,9 @@ capture_project_mmaps() {
       return 0
     fi
     while IFS= read -r path; do
-      [ -n "$path" ] && remember_offload_mmap_path worker "$path"
+      if [ -n "$path" ]; then
+        remember_offload_mmap_path worker "$path"
+      fi
     done < <(printf '%s\n' "$output" | sort -u)
   fi
 }

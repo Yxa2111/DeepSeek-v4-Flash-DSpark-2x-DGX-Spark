@@ -55,6 +55,19 @@ DOCKER_LOG="$TMP_DIR/docker.log"
 SSH_LOG="$TMP_DIR/ssh.log"
 docker() { printf '%q ' "$@" >> "$DOCKER_LOG"; printf '\n' >> "$DOCKER_LOG"; }
 ssh() { printf '%q ' "$@" >> "$SSH_LOG"; printf '\n' >> "$SSH_LOG"; }
+export -f docker
+
+# `printf '%s\n' ""` feeds one empty record to the capture loops.  With
+# `set -e`, a short-circuit `[ -n "$path" ] && ...` made that ordinary
+# no-mmap case abort the entire stop before either rank was removed.
+HEAD_MMAP_PATHS=()
+WORKER_MMAP_PATHS=()
+if capture_project_mmaps kv-offload-empty local \
+  && [ "${#HEAD_MMAP_PATHS[@]}" -eq 0 ]; then
+  ok "empty mmap capture does not abort stop"
+else
+  bad "empty mmap capture does not abort stop"
+fi
 
 DSPARK_VLLM_IMAGE=test/runtime:exact
 mkdir -p "$TMP_DIR/head root"
