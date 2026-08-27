@@ -84,6 +84,14 @@ present. The restored service logged 4,122 committed persistent KV slots,
 became healthy, and reported zero running and waiting requests. Both peer
 guards are active. Qwen ASR and Grafana retained their running services.
 
+The rollback startup was operationally successful but not allocator-clean.
+The head recorded `NV_ERR_NO_MEMORY` at 15:36:22 and 15:36:23 UTC, and the
+worker recorded it twice at 15:36:28 UTC. These warnings were non-fatal in the
+lower profile: settled `MemAvailable` recovered to approximately 17.5 GiB on
+the head and 23.3 GiB on the worker, with typed guard state `running` and no
+action. They remain an explicit runtime/driver gap rather than being hidden by
+the healthy API result.
+
 The recovered lower-UMA runtime currently reports 378,162 hot KV tokens. This
 live value, rather than the older README's approximately 2.49M-token number,
 is the relevant capacity observation for this patched image and current host
