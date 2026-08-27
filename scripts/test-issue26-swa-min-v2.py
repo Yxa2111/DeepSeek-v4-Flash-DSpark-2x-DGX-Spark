@@ -45,6 +45,19 @@ class Issue26SwaMinV2Test(unittest.TestCase):
         self.assertEqual(status, "v2")
         self.assertEqual(once, twice)
 
+    def test_production_ephemeral_contract_safely_supersedes_hotfix(self):
+        src = "prefix\n" + self.mod.PRODUCTION_EPHEMERAL_BLOCK + "suffix\n"
+        new, status = self.mod.apply_text(src)
+        self.assertEqual(status, "builtin-ephemeral")
+        self.assertEqual(new, src)
+        self.assertIn("curr_hit_length = _new_hit_length", new)
+        self.assertNotIn("isinstance(spec, SlidingWindowSpec)", new)
+
+    def test_partial_ephemeral_marker_fails_closed(self):
+        src = "if veto_exempt and _new_hit_length == 0:\n    continue\n"
+        with self.assertRaisesRegex(SystemExit, "anchor not found"):
+            self.mod.apply_text(src)
+
     def test_v1_would_skip_prefill_on_empty_swa(self):
         # Document the v1 control-flow bug: continue before curr_hit_length
         # assign leaves a long MLA candidate in place.

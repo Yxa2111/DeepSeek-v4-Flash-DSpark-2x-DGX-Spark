@@ -29,11 +29,27 @@ P = Path(
 
 MARK_V2 = "# [issue26-hotfix-v2] SWA may shrink the common hit (#36)"
 MARK_V1 = "# [issue26-hotfix] SWA groups must not shrink the hybrid common hit"
+PRODUCTION_EPHEMERAL_BLOCK = (
+    "                _new_hit_length = len(hit_blocks[0]) * spec.block_size\n"
+    "                if veto_exempt and _new_hit_length == 0:\n"
+    "                    # DSpark rebuilds this scratch context after stable target\n"
+    "                    # KV is restored. Its miss says nothing about the target\n"
+    "                    # groups' independently confirmed prefix.\n"
+    "                    continue\n"
+    "                if drop_eagle_block:\n"
+    "                    eagle_verified.add(idx)\n"
+    "                elif _new_hit_length < curr_hit_length:\n"
+    "                    # length shrunk; invalidate previous eagle verifications\n"
+    "                    eagle_verified.clear()\n"
+    "                curr_hit_length = _new_hit_length\n"
+)
 
 if len(sys.argv) > 1 and sys.argv[1] == "--status":
     status_src = P.read_text(encoding="utf-8") if P.is_file() else ""
     if MARK_V2 in status_src:
         print("issue26 hybrid-SWA-min v2         : APPLIED")
+    elif PRODUCTION_EPHEMERAL_BLOCK in status_src:
+        print("issue26 hybrid-SWA-min v2         : BUILTIN (production ephemeral contract)")
     elif MARK_V1 in status_src:
         print("issue26 hybrid-SWA-min v2         : NOT APPLIED (v1 inject present)")
     else:
@@ -87,9 +103,15 @@ V2_BLOCK = (
 
 
 def apply_text(src: str) -> tuple[str, str]:
-    """Return (new_source, status) where status is v2|reverted-v1|annotated."""
+    """Return source and the applied or safely superseded status."""
     if MARK_V2 in src:
         return src, "v2"
+    if PRODUCTION_EPHEMERAL_BLOCK in src:
+        # The production DSpark contract preserves the v2 invariant for every
+        # stable/SWA group: its hit still assigns ``curr_hit_length``. Only a
+        # typed ephemeral draft group may skip a zero-hit veto. Rewriting this
+        # newer block with the legacy stock anchor would destroy that contract.
+        return src, "builtin-ephemeral"
     if V1_INJECT in src or MARK_V1 in src:
         if V1_INJECT not in src:
             raise SystemExit("issue26 v1 marker present but inject block not found")
@@ -104,6 +126,9 @@ def main() -> None:
     new, status = apply_text(src)
     if status == "v2":
         print(f"[issue26-hotfix-v2] already applied to {P}")
+        return
+    if status == "builtin-ephemeral":
+        print(f"[issue26-hotfix-v2] safely superseded by production contract in {P}")
         return
     P.write_text(new)
     print(f"[issue26-hotfix-v2] {status}: {P}")
