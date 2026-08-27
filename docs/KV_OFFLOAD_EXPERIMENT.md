@@ -127,3 +127,6 @@ profile are in
 [`KV_OFFLOAD_PRODUCTION_STEP_08.md`](KV_OFFLOAD_PRODUCTION_STEP_08.md).
 The restart-persistent deployment contract and offline gates are in
 [`KV_OFFLOAD_PRODUCTION_STEP_23.md`](KV_OFFLOAD_PRODUCTION_STEP_23.md).
+The complete TP=2 restart, interrupted-store boundary, deterministic replay,
+and dual-rank NVMe evidence are in
+[`KV_OFFLOAD_PRODUCTION_STEP_24.md`](KV_OFFLOAD_PRODUCTION_STEP_24.md).
