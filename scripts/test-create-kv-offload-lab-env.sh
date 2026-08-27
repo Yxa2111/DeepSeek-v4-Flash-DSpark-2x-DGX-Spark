@@ -13,6 +13,7 @@ printf '%s\n' \
   'WORKER_DIR=/old/worker' \
   'WORKER_SCRIPT_DIR=/old/script' \
   'KV_OFFLOAD_MODE=off' \
+  'GPU_MEMORY_UTILIZATION_TEXT=0.835' \
   'DSPARK_SPECULATION=off' > "$source_env"
 chmod 640 "$source_env"
 
@@ -35,6 +36,7 @@ LAB_WORKER_KV_OFFLOAD_ROOT='/lab/worker-kv' \
 [ "$(grep -c '^MAX_NUM_BATCHED_TOKENS=8192$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^DSPARK_BOOT_SHAPE_WARMUP=0$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^ENABLE_VL_SIDECAR=0$' "$target_env")" -eq 1 ]
+[ "$(grep -c '^GPU_MEMORY_UTILIZATION_TEXT=0.80$' "$target_env")" -eq 1 ]
 [ "$(grep -c '^WORKER_DIR=' "$target_env" || true)" -eq 0 ]
 [ "$(grep -c '^WORKER_SCRIPT_DIR=' "$target_env")" -eq 1 ]
 
@@ -49,5 +51,17 @@ if LAB_DSPARK_VLLM_IMAGE='diag:image' \
 fi
 [ "$before" = "$(sha256sum "$source_env")" ]
 [ ! -e "$tmp/bad.env" ]
+
+if LAB_DSPARK_VLLM_IMAGE='diag:image' \
+  LAB_WORKER_DIR='/lab/worker' \
+  LAB_KV_OFFLOAD_ROOT='/lab/head-kv' \
+  LAB_WORKER_KV_OFFLOAD_ROOT='/lab/worker-kv' \
+  LAB_GPU_MEMORY_UTILIZATION_TEXT='0.80;id' \
+  "$ROOT/scripts/create-kv-offload-lab-env.sh" "$source_env" "$tmp/bad-util.env" \
+  >/dev/null 2>&1; then
+  echo "FAIL invalid GPU utilization accepted" >&2
+  exit 1
+fi
+[ ! -e "$tmp/bad-util.env" ]
 
 echo "KV offload lab env generator tests passed"
