@@ -54,6 +54,8 @@ py_files+=(
   scripts/test-benchmark-kv-offload.py
   scripts/reproduce-cancelled-concurrency.py
   scripts/test-reproduce-cancelled-concurrency.py
+  scripts/reproduce-cancelled-chat.py
+  scripts/test-reproduce-cancelled-chat.py
   scripts/spec-acceptance.py
   scripts/test-spec-acceptance.py
   scripts/test-ruler-lite-pad.py
@@ -91,6 +93,8 @@ python3 scripts/test-benchmark-kv-offload.py -q
 ok "test-benchmark-kv-offload"
 python3 scripts/test-reproduce-cancelled-concurrency.py -q
 ok "test-reproduce-cancelled-concurrency"
+python3 scripts/test-reproduce-cancelled-chat.py -q
+ok "test-reproduce-cancelled-chat"
 python3 scripts/test-spec-acceptance.py -q
 ok "test-spec-acceptance"
 python3 scripts/test-ruler-lite-pad.py -q
