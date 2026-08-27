@@ -2,8 +2,8 @@
 
 Date: 2026-08-27
 
-State: implementation and CPU-only fault tests complete.  The live two-node
-fault injection passed in Step 28; continuous service installation remains.
+State: complete.  The live two-node fault injection passed in Step 28 and the
+continuously supervised two-node installation passed in Step 29.
 
 ## Gap
 
@@ -91,3 +91,6 @@ This acceptance was completed on the persistent TP=2 profile.  The exact
 timestamps, typed guard states, bounded survivor stop, retained cache and
 successful restart are recorded in
 [`KV_OFFLOAD_PRODUCTION_STEP_28.md`](KV_OFFLOAD_PRODUCTION_STEP_28.md).
+The supervised unit, single-instance/evidence wrapper and live restart proof
+are recorded in
+[`KV_OFFLOAD_PRODUCTION_STEP_29.md`](KV_OFFLOAD_PRODUCTION_STEP_29.md).

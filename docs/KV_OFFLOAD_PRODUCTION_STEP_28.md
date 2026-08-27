@@ -104,6 +104,7 @@ both nodes, stopping either exact rank causes its survivor to fail closed in a
 bounded interval, while normal local absence is not treated as a peer fault.
 The complete group can then restart from its persistent cache.
 
-The remaining deployment gap is operational: the guards must be installed as
-continuously supervised services rather than launched manually for a test.
-The sustained concurrency stability gate also remains separate.
+The operational deployment gap was closed by the continuously supervised
+two-node installation in
+[`KV_OFFLOAD_PRODUCTION_STEP_29.md`](KV_OFFLOAD_PRODUCTION_STEP_29.md).
+The sustained concurrency stability gate remains separate.
