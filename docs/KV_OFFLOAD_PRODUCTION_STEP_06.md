@@ -61,6 +61,25 @@ with prompt count. The launcher validates all three ranges and passes real JSON
 numbers into the connector. These are runtime/deployment data-plane bounds,
 not Azusa request admission control.
 
+MiaAI commit `cd1cfa4` adds a read-only live sampler for the next stress run.
+Every sample records node `MemAvailable`, swap, load, memory PSI, the exact
+vLLM container PID/cgroup, cgroup current/peak memory, OOM and OOM-kill
+counters, aggregate cgroup block-I/O bytes/operations, and maximum exposed
+thermal-zone temperature. Exit archives kernel messages from the sampled
+window plus a private SHA-256 manifest. The sampler has a finite interval and
+sample count, never manipulates the service, and must run independently on
+both nodes so a head failure cannot destroy the worker-side timeline.
+
+Example one-hour capture on each node:
+
+```bash
+./scripts/sample-kv-offload-telemetry.sh \
+  --output /home/yxa/kv-offload-lab/telemetry/head-restore-proof \
+  --project kv-offload-step06 \
+  --interval 5 \
+  --samples 720
+```
+
 Run it on the recovered head before restarting the project:
 
 ```bash
@@ -87,6 +106,7 @@ Result:
 ```text
 test-stop-kv-offload-cleanup.sh:   13 passed, 0 failed
 test-collect-kv-offload-postmortem.sh: passed
+test-sample-kv-offload-telemetry.sh: passed
 test-kv-offload-config.sh:         20 passed, 0 failed
 test-create-kv-offload-lab-env.sh: passed
 bash syntax checks:                passed
