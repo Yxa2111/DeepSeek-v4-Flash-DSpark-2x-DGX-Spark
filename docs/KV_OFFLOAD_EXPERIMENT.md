@@ -1,6 +1,6 @@
 # NVMe KV offload experiment
 
-Status: Step 07 postmortem complete; guarded live revalidation is next.
+Status: Step 08 node guard complete offline; guarded live revalidation is next.
 Defaults remain `KV_OFFLOAD_MODE=off` and
 `DSPARK_SPECULATION=dspark`. `nvme-local` is the primary process-lifetime
 parked-session candidate and requires an Anemll image carrying patch 0006;
@@ -117,3 +117,6 @@ forced-stop cleanup, rollback, and the remaining production gates are in
 [`KV_OFFLOAD_PRODUCTION_STEP_06.md`](KV_OFFLOAD_PRODUCTION_STEP_06.md).
 The recovered-head unclean-shutdown analysis and revised resource gates are in
 [`KV_OFFLOAD_PRODUCTION_STEP_07.md`](KV_OFFLOAD_PRODUCTION_STEP_07.md).
+The numeric DGX Spark reserve guard, fsync-backed telemetry, and safer lab
+profile are in
+[`KV_OFFLOAD_PRODUCTION_STEP_08.md`](KV_OFFLOAD_PRODUCTION_STEP_08.md).
