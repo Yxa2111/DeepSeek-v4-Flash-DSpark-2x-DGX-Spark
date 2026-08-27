@@ -130,3 +130,6 @@ The restart-persistent deployment contract and offline gates are in
 The complete TP=2 restart, interrupted-store boundary, deterministic replay,
 and dual-rank NVMe evidence are in
 [`KV_OFFLOAD_PRODUCTION_STEP_24.md`](KV_OFFLOAD_PRODUCTION_STEP_24.md).
+The coordinated scheduler-first purge contract, CPU gates and live fail-closed
+preflights are in
+[`KV_OFFLOAD_PRODUCTION_STEP_25.md`](KV_OFFLOAD_PRODUCTION_STEP_25.md).
