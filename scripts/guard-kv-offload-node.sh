@@ -158,6 +158,7 @@ project_containers() {
 
 stop_exact_container() {
   local container_id="$1"
+  local exit_code
   local running
   printf '%s stopping exact container %s for project %s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$container_id" "$PROJECT_NAME" \
@@ -166,7 +167,13 @@ stop_exact_container() {
   if timeout "$((STOP_TIMEOUT_SECONDS + 10))" \
     "$DOCKER_BIN" stop --timeout "$STOP_TIMEOUT_SECONDS" "$container_id" \
     >> "$ACTION_LOG" 2>&1; then
-    STOP_RESULT=graceful_stop
+    exit_code="$($DOCKER_BIN inspect --format '{{.State.ExitCode}}' \
+      "$container_id" 2>/dev/null || true)"
+    if [ "$exit_code" = 137 ]; then
+      STOP_RESULT=timed_kill
+    else
+      STOP_RESULT=graceful_stop
+    fi
   else
     printf '%s graceful stop failed; issuing exact-container kill\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$ACTION_LOG"

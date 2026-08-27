@@ -28,7 +28,11 @@ case "$1" in
     printf '%s\n' "${*: -1}"
     ;;
   inspect)
-    cat "$FAKE_DOCKER_STATE"
+    if [ "$3" = '{{.State.ExitCode}}' ]; then
+      printf '%s\n' "${FAKE_DOCKER_EXIT_CODE:-0}"
+    else
+      cat "$FAKE_DOCKER_STATE"
+    fi
     ;;
   *) exit 2 ;;
 esac
@@ -78,6 +82,26 @@ grep -Fxq 'trigger_reason=low_memory' "$TMP_DIR/trigger/run.meta"
 grep -Fxq 'stop_result=graceful_stop' "$TMP_DIR/trigger/run.meta"
 grep -Fxq 'peer_stop_result=stopped_or_absent' "$TMP_DIR/trigger/run.meta"
 sha256sum -c "$TMP_DIR/trigger/MANIFEST.sha256" >/dev/null
+
+: > "$FAKE_DOCKER_LOG"
+export FAKE_DOCKER_MODE=one
+export FAKE_DOCKER_EXIT_CODE=137
+printf 'true\n' > "$FAKE_DOCKER_STATE"
+set +e
+KV_GUARD_DOCKER_BIN="$FAKE_DOCKER" \
+KV_GUARD_SLEEP_BIN=/bin/true \
+KV_GUARD_SYNC_BIN=/bin/true \
+KV_GUARD_MEMINFO_PATH="$TMP_DIR/meminfo-low" \
+KV_GUARD_THERMAL_ROOT="$TMP_DIR/thermal" \
+  "$SCRIPT" --output "$TMP_DIR/timed-kill" --project kv-offload-test \
+  --interval 1 --samples 1 --min-available-kib 2000 \
+  --max-temp-millic 90000 --consecutive 1 --stop-timeout 5 \
+  >/dev/null 2>&1
+timed_kill_status=$?
+set -e
+[ "$timed_kill_status" -eq 42 ]
+grep -Fxq 'stop_result=timed_kill' "$TMP_DIR/timed-kill/run.meta"
+unset FAKE_DOCKER_EXIT_CODE
 
 : > "$FAKE_DOCKER_LOG"
 export FAKE_DOCKER_MODE=none
