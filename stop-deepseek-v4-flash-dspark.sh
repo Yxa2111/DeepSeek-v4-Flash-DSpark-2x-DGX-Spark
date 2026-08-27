@@ -28,9 +28,161 @@ WORKER_VLLM_HOST_IP="${WORKER_VLLM_HOST_IP:-}"
 # time it boots, and nothing here will have stopped it. Mirror start's ssh
 # hardening (BatchMode/ConnectTimeout) so stop never hangs on a prompt either.
 STOP_FAILURES=0
+HEAD_MMAP_PATHS=()
+WORKER_MMAP_PATHS=()
 stop_warn() {
   echo "WARN: $*" >&2
   STOP_FAILURES=$((STOP_FAILURES + 1))
+}
+
+# SimpleCPUOffloadConnector allocates a named mmap in host IPC. Graceful
+# shutdown unlinks it, but docker rm -f cannot run Python cleanup. Capture only
+# the exact files opened by this project's vLLM container before removal, then
+# remove only those captured paths after the ranks have stopped.
+valid_offload_mmap_path() {
+  [[ "$1" =~ ^/dev/shm/vllm_offload_[A-Za-z0-9._-]+\.mmap$ ]]
+}
+
+remember_offload_mmap_path() {
+  local where="$1"
+  local path="$2"
+  local existing
+  local -n paths_ref
+
+  if ! valid_offload_mmap_path "$path"; then
+    stop_warn "refusing unexpected KV mmap path from ${where}: ${path}"
+    return 0
+  fi
+  if [ "$where" = "head" ]; then
+    paths_ref=HEAD_MMAP_PATHS
+  else
+    paths_ref=WORKER_MMAP_PATHS
+  fi
+  for existing in "${paths_ref[@]}"; do
+    [ "$existing" = "$path" ] && return 0
+  done
+  paths_ref+=("$path")
+}
+
+mmap_capture_command() {
+  local project="$1"
+  cat <<EOF
+ids=\$(
+  {
+    docker ps -q --filter 'label=com.docker.compose.project=$project' 2>/dev/null || true
+    docker ps -q --filter 'name=${project}-vllm-dspark' 2>/dev/null || true
+  } | awk 'NF' | sort -u
+)
+for cid in \$ids; do
+  docker exec "\$cid" sh -c '
+    for fd in /proc/[0-9]*/fd/*; do
+      [ -L "\$fd" ] || continue
+      target=\$(readlink "\$fd" 2>/dev/null || true)
+      case "\$target" in
+        /dev/shm/vllm_offload_*.mmap) printf "%s\\n" "\$target" ;;
+      esac
+    done
+  ' 2>/dev/null || true
+done
+EOF
+}
+
+capture_project_mmaps() {
+  local project="$1"
+  local where="$2" # local | remote
+  local path
+  local cmd
+  local output
+  cmd="$(mmap_capture_command "$project")"
+
+  if [ "$where" = "local" ]; then
+    output="$(bash -c "$cmd")"
+    while IFS= read -r path; do
+      [ -n "$path" ] && remember_offload_mmap_path head "$path"
+    done < <(printf '%s\n' "$output" | sort -u)
+  elif [ "${WORKER_REACHABLE:-1}" = "1" ]; then
+    if ! output="$(ssh "$WORKER_HOST" "$cmd")"; then
+      stop_warn "failed to capture worker KV mmap paths on ${WORKER_HOST}"
+      return 0
+    fi
+    while IFS= read -r path; do
+      [ -n "$path" ] && remember_offload_mmap_path worker "$path"
+    done < <(printf '%s\n' "$output" | sort -u)
+  fi
+}
+
+remove_captured_mmaps() {
+  local where="$1" # local | remote
+  shift
+  local path
+  local quoted_path
+  local quoted_image
+
+  for path in "$@"; do
+    if ! valid_offload_mmap_path "$path"; then
+      stop_warn "refusing unexpected captured KV mmap path on ${where}: ${path}"
+      continue
+    fi
+    if [ "$where" = "local" ]; then
+      docker run --rm --ipc=host --entrypoint /bin/rm \
+        "$DSPARK_VLLM_IMAGE" -f -- "$path" \
+        || stop_warn "failed to remove captured head KV mmap ${path}"
+    elif [ "${WORKER_REACHABLE:-1}" = "1" ]; then
+      printf -v quoted_path '%q' "$path"
+      printf -v quoted_image '%q' "$DSPARK_VLLM_IMAGE"
+      ssh "$WORKER_HOST" \
+        "docker run --rm --ipc=host --entrypoint /bin/rm ${quoted_image} -f -- ${quoted_path}" \
+        || stop_warn "failed to remove captured worker KV mmap ${path}"
+    fi
+  done
+}
+
+valid_kv_offload_root() {
+  local root="$1"
+  [[ "$root" = /* && "$root" != *:* && "$root" != *,* \
+    && "$root" != *$'\n'* && "$root" != *$'\r'* ]]
+}
+
+remove_nvme_slot() {
+  local where="$1" # local | remote
+  local root="$2"
+  local rank="$3"
+  local slot="vllm-kv.slots.rank_${rank}"
+  local quoted_root
+  local quoted_image
+
+  if ! valid_kv_offload_root "$root"; then
+    stop_warn "refusing unsafe ${where} KV_OFFLOAD_ROOT: ${root}"
+    return 0
+  fi
+  if [ "$where" = "local" ]; then
+    [ -d "$root" ] || return 0
+    docker run --rm --entrypoint /bin/rm \
+      --mount "type=bind,src=${root},dst=/kv-offload-root" \
+      "$DSPARK_VLLM_IMAGE" -f -- "/kv-offload-root/${slot}" \
+      || stop_warn "failed to remove head NVMe slot ${root}/${slot}"
+  elif [ "${WORKER_REACHABLE:-1}" = "1" ]; then
+    printf -v quoted_root '%q' "$root"
+    printf -v quoted_image '%q' "$DSPARK_VLLM_IMAGE"
+    ssh "$WORKER_HOST" \
+      "if [ -d ${quoted_root} ]; then docker run --rm --entrypoint /bin/rm --mount type=bind,src=${quoted_root},dst=/kv-offload-root ${quoted_image} -f -- /kv-offload-root/${slot}; fi" \
+      || stop_warn "failed to remove worker NVMe slot ${root}/${slot}"
+  fi
+}
+
+cleanup_kv_offload_artifacts() {
+  remove_captured_mmaps local "${HEAD_MMAP_PATHS[@]}"
+  if [ "${WORKER_REACHABLE:-1}" = "1" ]; then
+    remove_captured_mmaps remote "${WORKER_MMAP_PATHS[@]}"
+  fi
+
+  if [ "${KV_OFFLOAD_MODE:-off}" = "nvme-local" ]; then
+    remove_nvme_slot local "${KV_OFFLOAD_ROOT:-${HOME}/.cache/dspark-kv-offload}" 0
+    if [ "${WORKER_REACHABLE:-1}" = "1" ]; then
+      remove_nvme_slot remote \
+        "${WORKER_KV_OFFLOAD_ROOT:-${KV_OFFLOAD_ROOT:-${HOME}/.cache/dspark-kv-offload}}" 1
+    fi
+  fi
 }
 
 # After docker rm -f, compose down often has nothing left and prints
@@ -38,12 +190,14 @@ stop_warn() {
 filter_compose_empty_project() {
   grep -v 'No resource found to remove for project' || true
 }
-if ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_HOST" "true" >/dev/null 2>&1; then
-  WORKER_REACHABLE=1
-else
-  WORKER_REACHABLE=0
-  echo "WARN: cannot reach worker ${WORKER_HOST}; its ranks will NOT be stopped." >&2
-fi
+detect_worker_reachable() {
+  if ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_HOST" "true" >/dev/null 2>&1; then
+    WORKER_REACHABLE=1
+  else
+    WORKER_REACHABLE=0
+    echo "WARN: cannot reach worker ${WORKER_HOST}; its ranks will NOT be stopped." >&2
+  fi
+}
 
 local_project_has_resources() {
   local project="$1"
@@ -180,6 +334,9 @@ stop_main_worker() {
 stop_project() {
   local project="$1"
 
+  capture_project_mmaps "$project" local
+  capture_project_mmaps "$project" remote
+
   # Vision first so a failed main down cannot leave Qwen occupying VRAM.
   stop_vl_sidecar_head "$project"
   stop_vl_sidecar_worker "$project"
@@ -192,18 +349,28 @@ stop_project() {
   force_rm_project_containers "$project" remote
 }
 
-stop_project "$PROJECT_NAME"
-if [ "$LEGACY_PROJECT_NAME" != "$PROJECT_NAME" ]; then
-  stop_project "$LEGACY_PROJECT_NAME"
-fi
+main() {
+  detect_worker_reachable
 
-if [ "$STOP_FAILURES" -gt 0 ]; then
-  echo "WARN: $STOP_FAILURES remote stop step(s) failed on ${WORKER_HOST}; the worker may still be serving a stale rank (restart: unless-stopped restores it on reboot). Re-run ./stop-deepseek-v4-flash-dspark.sh once the worker is reachable." >&2
-  exit 1
-fi
+  stop_project "$PROJECT_NAME"
+  if [ "$LEGACY_PROJECT_NAME" != "$PROJECT_NAME" ]; then
+    stop_project "$LEGACY_PROJECT_NAME"
+  fi
 
-if [ "${ENABLE_VL_SIDECAR:-0}" = "1" ]; then
-  echo "DeepSeek V4 Flash DSpark stopped (0731 + VL vision sidecar)."
-else
-  echo "DeepSeek V4 Flash DSpark stopped (0731 text-only; any leftover VL sidecar swept)."
+  cleanup_kv_offload_artifacts
+
+  if [ "$STOP_FAILURES" -gt 0 ]; then
+    echo "WARN: $STOP_FAILURES stop/cleanup step(s) failed; a stale rank or KV artifact may remain. Re-run ./stop-deepseek-v4-flash-dspark.sh once both nodes are reachable." >&2
+    return 1
+  fi
+
+  if [ "${ENABLE_VL_SIDECAR:-0}" = "1" ]; then
+    echo "DeepSeek V4 Flash DSpark stopped (0731 + VL vision sidecar)."
+  else
+    echo "DeepSeek V4 Flash DSpark stopped (0731 text-only; any leftover VL sidecar swept)."
+  fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi
