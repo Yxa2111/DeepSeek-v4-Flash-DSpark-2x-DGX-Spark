@@ -5,6 +5,8 @@ This reproduces the operational shape where a burst of clients is stopped and
 one older long-running request must continue to completion.  It deliberately
 uses curl subprocesses so terminating a client closes the HTTP connection,
 rather than merely cancelling a local asyncio task.
+
+Concurrency 1 is the no-cancellation control for the same deterministic prompt.
 """
 
 from __future__ import annotations
@@ -97,8 +99,8 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    if args.concurrency < 2:
-        parser.error("concurrency must be at least 2")
+    if args.concurrency < 1:
+        parser.error("concurrency must be at least 1")
     if not 0 <= args.survivor < args.concurrency:
         parser.error("survivor must index one of the concurrent clients")
     if min(args.prompt_tokens, args.max_tokens) <= 0:
