@@ -34,6 +34,24 @@ Roots must be absolute and cannot contain newline, carriage return, colon, or
 comma. Missing roots and missing exact files are idempotent no-ops. Cleanup
 never uses a wildcard for deletion.
 
+MiaAI commit `d2a36da` adds a read-only recovery collector. It deliberately
+does not start, stop, restart, delete, or inspect container environment values.
+It records previous-boot kernel/warning/Docker/network journals, reboot history,
+current memory/swap/PSI, storage, network, thermal, NVIDIA/NVMe visibility,
+failed units, coredumps, limited Compose state, and bounded old container logs.
+The private output is mode 700 with mode-600 files and a SHA-256 manifest; raw
+journals/logs must be reviewed for prompt or secret content before anything is
+copied into git.
+
+Run it on the recovered head before restarting the project:
+
+```bash
+./scripts/collect-kv-offload-postmortem.sh \
+  --output /home/yxa/kv-offload-lab/postmortem/step05-head-$(date +%Y%m%dT%H%M%S) \
+  --boot -1 \
+  --project kv-offload-step05
+```
+
 ## Deterministic cleanup gate
 
 `scripts/test-stop-kv-offload-cleanup.sh` sources the guarded stop script with
@@ -50,6 +68,7 @@ Result:
 
 ```text
 test-stop-kv-offload-cleanup.sh:   13 passed, 0 failed
+test-collect-kv-offload-postmortem.sh: passed
 test-kv-offload-config.sh:         17 passed, 0 failed
 test-create-kv-offload-lab-env.sh: passed
 bash syntax checks:                passed
