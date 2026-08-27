@@ -15,6 +15,8 @@ reset_inputs() {
   unset KV_OFFLOAD_WRITE_THREADS KV_OFFLOAD_PYTHONHASHSEED
   unset KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES
   unset KV_OFFLOAD_DISK_BYTES KV_OFFLOAD_DISK_BUFFER_SLOTS
+  unset KV_OFFLOAD_DISK_QUEUE_DEPTH KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS
+  unset KV_OFFLOAD_DISK_MAX_STORE_BLOCKS
   unset KV_OFFLOAD_USE_PAGE_CACHE KV_OFFLOAD_PREALLOCATE_DISK
   unset DSPARK_KV_OFFLOAD_DIAG DSPARK_SPECULATION DRAFT_SAMPLE_METHOD
   unset MTP_NUM_TOKENS MAX_NUM_SEQS PYTHONHASHSEED PYTORCH_CUDA_ALLOC_CONF
@@ -43,6 +45,9 @@ if dspark_build_experimental_args \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_path":"/kv-offload/vllm-kv.slots"'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_capacity_bytes":68719476736'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_buffer_slots":2'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_queue_depth":2'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_enqueue_timeout_s":30'* ]] \
+  && [[ "$KV_OFFLOAD_CONFIG" == *'"disk_max_store_blocks":64'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"use_page_cache":false'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"preallocate_disk":true'* ]] \
   && [[ "$KV_OFFLOAD_CONFIG" == *'"lazy_offload":false'* ]]; then
@@ -97,6 +102,9 @@ expect_reject "oversized relay chunk rejected" KV_OFFLOAD_MODE=fs-rank0 KV_OFFLO
 expect_reject "undersized NVMe capacity rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BYTES=1073741823
 expect_reject "oversized NVMe capacity rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BYTES=171798691841
 expect_reject "invalid disk buffer count rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_BUFFER_SLOTS=9
+expect_reject "invalid disk queue depth rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_QUEUE_DEPTH=65
+expect_reject "invalid disk enqueue timeout rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS=0
+expect_reject "invalid disk store bound rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_DISK_MAX_STORE_BLOCKS=4097
 expect_reject "page-cache flag injection rejected" 'KV_OFFLOAD_MODE=nvme-local' 'KV_OFFLOAD_USE_PAGE_CACHE=$(id)'
 expect_reject "preallocation flag rejected" KV_OFFLOAD_MODE=nvme-local KV_OFFLOAD_PREALLOCATE_DISK=2
 expect_reject "diagnostic flag injection rejected" 'DSPARK_KV_OFFLOAD_DIAG=$(id)'

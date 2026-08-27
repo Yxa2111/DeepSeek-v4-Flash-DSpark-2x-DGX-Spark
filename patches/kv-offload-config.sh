@@ -43,6 +43,12 @@ dspark_build_experimental_args() {
         || return $?
       dspark_require_uint KV_OFFLOAD_DISK_BUFFER_SLOTS \
         "${KV_OFFLOAD_DISK_BUFFER_SLOTS:-2}" 1 8 || return $?
+      dspark_require_uint KV_OFFLOAD_DISK_QUEUE_DEPTH \
+        "${KV_OFFLOAD_DISK_QUEUE_DEPTH:-2}" 1 64 || return $?
+      dspark_require_uint KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS \
+        "${KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS:-30}" 1 300 || return $?
+      dspark_require_uint KV_OFFLOAD_DISK_MAX_STORE_BLOCKS \
+        "${KV_OFFLOAD_DISK_MAX_STORE_BLOCKS:-64}" 1 4096 || return $?
       dspark_require_bool01 KV_OFFLOAD_USE_PAGE_CACHE \
         "${KV_OFFLOAD_USE_PAGE_CACHE:-0}" || return $?
       dspark_require_bool01 KV_OFFLOAD_PREALLOCATE_DISK \
@@ -52,7 +58,7 @@ dspark_build_experimental_args() {
       # expandable_segments may remap registered addresses, so it is unsafe
       # for both local NVMe and the older filesystem tier.
       unset PYTORCH_CUDA_ALLOC_CONF
-      KV_OFFLOAD_CONFIG="{\"kv_connector\":\"SimpleCPUOffloadConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"kv_offload_backend\":\"disk\",\"disk_path\":\"/kv-offload/vllm-kv.slots\",\"disk_capacity_bytes\":${KV_OFFLOAD_DISK_BYTES:-68719476736},\"disk_buffer_slots\":${KV_OFFLOAD_DISK_BUFFER_SLOTS:-2},\"use_page_cache\":$([ "${KV_OFFLOAD_USE_PAGE_CACHE:-0}" = 1 ] && echo true || echo false),\"preallocate_disk\":$([ "${KV_OFFLOAD_PREALLOCATE_DISK:-1}" = 1 ] && echo true || echo false),\"lazy_offload\":false}}"
+      KV_OFFLOAD_CONFIG="{\"kv_connector\":\"SimpleCPUOffloadConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"kv_offload_backend\":\"disk\",\"disk_path\":\"/kv-offload/vllm-kv.slots\",\"disk_capacity_bytes\":${KV_OFFLOAD_DISK_BYTES:-68719476736},\"disk_buffer_slots\":${KV_OFFLOAD_DISK_BUFFER_SLOTS:-2},\"disk_queue_depth\":${KV_OFFLOAD_DISK_QUEUE_DEPTH:-2},\"disk_enqueue_timeout_s\":${KV_OFFLOAD_DISK_ENQUEUE_TIMEOUT_SECONDS:-30},\"disk_max_store_blocks\":${KV_OFFLOAD_DISK_MAX_STORE_BLOCKS:-64},\"use_page_cache\":$([ "${KV_OFFLOAD_USE_PAGE_CACHE:-0}" = 1 ] && echo true || echo false),\"preallocate_disk\":$([ "${KV_OFFLOAD_PREALLOCATE_DISK:-1}" = 1 ] && echo true || echo false),\"lazy_offload\":false}}"
       KV_TRANSFER_ARGS=(--kv-transfer-config "$KV_OFFLOAD_CONFIG")
       ;;
     fs-poc|fs-rank0)
