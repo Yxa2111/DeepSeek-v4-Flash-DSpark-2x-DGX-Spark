@@ -117,6 +117,15 @@ The exact seven-patch worker image also passed seven backend cases plus one
 bounded-and-resumable scheduler case (`8 passed`). A four-block store was split
 into two events of two rows without losing the deferred blocks.
 
+The same image subsequently passed the complete pinned
+`tests/v1/simple_kv_offload/test_scheduler.py` with a generated offline OPT
+configuration (`31 passed`). Anemll test patch `0008` also injects
+`posix_fallocate(...)=ENOSPC` after file creation and proves initialization
+closes the fd, removes the partial slot file, and starts no I/O thread. Together
+with the existing checksum and background-I/O cases, the disk-backend suite is
+now `8 passed`. Patch 0008 is test-only; the seven-patch runtime image bytes are
+unchanged.
+
 During Step 05, one stale generic mmap was removed manually only after the
 owning service had stopped:
 
