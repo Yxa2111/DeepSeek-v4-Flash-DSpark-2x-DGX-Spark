@@ -1,7 +1,8 @@
 # NVMe KV offload experiment
 
-Status: restart-persistent deployment mode is implemented offline; the guarded
-TP=2 service-restart proof is next.
+Status: TP=2 restart persistence, identity rejection, coordinated purge, and
+one-rank corruption recovery have passed guarded live tests. Fatal runtime
+peer convergence and the sustained concurrency stability gate remain open.
 Defaults remain `KV_OFFLOAD_MODE=off` and
 `DSPARK_SPECULATION=dspark`. `nvme-local` remains the process-lifetime
 candidate. `nvme-persistent` adds the crash-safe rank manifests and scheduler
@@ -136,3 +137,6 @@ preflights are in
 The wrong-identity rejection, exact-project convergence and successful
 same-identity prefix recovery are in
 [`KV_OFFLOAD_PRODUCTION_STEP_26.md`](KV_OFFLOAD_PRODUCTION_STEP_26.md).
+The deterministic rank-1 corruption, live checksum failure, benchmark
+false-green correction, coordinated purge and clean rebuild are in
+[`KV_OFFLOAD_PRODUCTION_STEP_27.md`](KV_OFFLOAD_PRODUCTION_STEP_27.md).
