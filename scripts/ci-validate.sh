@@ -57,6 +57,7 @@ py_files+=(
   scripts/test-assistant-final-continuation.py
   scripts/stability-quick.py
   scripts/test-stability-quick-state.py
+  scripts/test-stability-quick-stream.py
   scripts/benchmark-kv-offload.py
   scripts/test-benchmark-kv-offload.py
   scripts/reproduce-cancelled-concurrency.py
@@ -98,6 +99,8 @@ python3 scripts/test-assistant-final-continuation.py -q
 ok "test-assistant-final-continuation"
 python3 scripts/test-stability-quick-state.py
 ok "test-stability-quick-state"
+python3 scripts/test-stability-quick-stream.py -q
+ok "test-stability-quick-stream"
 python3 scripts/test-benchmark-kv-offload.py -q
 ok "test-benchmark-kv-offload"
 python3 scripts/test-reproduce-cancelled-concurrency.py -q

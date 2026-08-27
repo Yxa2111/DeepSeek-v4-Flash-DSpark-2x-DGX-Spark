@@ -7,8 +7,10 @@ import argparse
 import base64
 import json
 import os
+import signal
 import statistics
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -66,23 +68,46 @@ def chat_stream(
     started = time.perf_counter()
     first = None
     usage = None
+    finish_reason = None
+    saw_choice = False
+    saw_done = False
     parts: list[str] = []
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         for raw in resp:
             line = raw.decode().strip()
-            if not line.startswith("data: ") or line == "data: [DONE]":
+            if not line.startswith("data: "):
                 continue
-            event = json.loads(line[6:])
+            payload = line[6:]
+            if payload == "[DONE]":
+                saw_done = True
+                break
+            event = json.loads(payload)
             choices = event.get("choices") or []
             delta = choices[0].get("delta", {}) if choices else {}
             content = delta.get("content") or ""
             reasoning = delta.get("reasoning") or delta.get("reasoning_content") or ""
             if first is None and (content or reasoning):
                 first = time.perf_counter()
+            if choices:
+                saw_choice = True
+                for choice in choices:
+                    if choice.get("finish_reason") is not None:
+                        finish_reason = str(choice["finish_reason"])
             parts.extend((content, reasoning))
             if event.get("usage"):
                 usage = event["usage"]
     finished = time.perf_counter()
+    if not saw_done:
+        raise RuntimeError("chat stream ended before SSE [DONE]")
+    if not saw_choice:
+        raise RuntimeError("chat stream ended without a choice event")
+    if finish_reason is None:
+        raise RuntimeError("chat stream ended without a finish reason")
+    required_usage = {"prompt_tokens", "completion_tokens", "total_tokens"}
+    missing_usage = required_usage - set(usage or {})
+    if missing_usage:
+        missing = ", ".join(sorted(missing_usage))
+        raise RuntimeError(f"chat stream is missing usage fields: {missing}")
     text = "".join(parts)
     prompt_tokens = (usage or {}).get("prompt_tokens", 0)
     output_tokens = (usage or {}).get("completion_tokens", 0)
@@ -94,6 +119,8 @@ def chat_stream(
         "elapsed_s": finished - started,
         "prompt_tokens": prompt_tokens,
         "output_tokens": output_tokens,
+        "finish_reason": finish_reason,
+        "stream_complete": True,
         "prefill_tok_s": prompt_tokens / max(0.001, ttft),
         "output_tok_s": output_tokens / decode_s,
         "preview": text[:240].replace("\n", " "),
@@ -170,6 +197,35 @@ def soak_checkpoint(
     return phase
 
 
+def atomic_write_json(path: Path, value: dict) -> None:
+    """Atomically publish one private JSON checkpoint and fsync its directory."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8888/v1")
@@ -204,6 +260,7 @@ def main() -> int:
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     report: dict = {
+        "schema_version": 2,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "base_url": args.base_url,
         "vl_url": args.vl_url,
@@ -215,7 +272,12 @@ def main() -> int:
 
     def save() -> None:
         report["updated_at"] = datetime.now(timezone.utc).isoformat()
-        out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        atomic_write_json(out, report)
+
+    def interrupt(_signum: int, _frame: object) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupt)
 
     # --- Phase 0: readiness ---
     log("Phase 0: readiness smoke")
@@ -309,6 +371,7 @@ def main() -> int:
     log(f"Phase 2: soak {args.soak_minutes:.0f}m @ {args.soak_prompt_tokens} tok ×{args.soak_concurrency}")
     soak_deadline = time.time() + args.soak_minutes * 60
     soak_rounds: list[dict] = []
+    soak_error: str | None = None
     round_i = 0
     report["phases"]["soak"] = soak_checkpoint(soak_rounds, complete=False)
     save()
@@ -367,14 +430,23 @@ def main() -> int:
                     f"  {'PASS' if ok else 'FAIL'} round {round_i}: "
                     f"median decode {med_out:.1f} tok/s"
                 )
+                if not ok:
+                    soak_error = f"soak round {round_i} returned an invalid response"
             except Exception as exc:  # noqa: BLE001
                 soak_rounds.append({"round": round_i, "ok": False, "error": str(exc)})
                 report["failures"].append(
                     {"phase": "soak", "round": round_i, "error": str(exc)}
                 )
                 log(f"  FAIL round {round_i}: {exc}")
-            report["phases"]["soak"] = soak_checkpoint(soak_rounds, complete=False)
+                soak_error = str(exc)
+            report["phases"]["soak"] = soak_checkpoint(
+                soak_rounds,
+                complete=False,
+                error=soak_error,
+            )
             save()
+            if soak_error is not None:
+                break
     except KeyboardInterrupt:
         error = "interrupted before configured soak duration elapsed"
         report["phases"]["soak"] = soak_checkpoint(
@@ -389,6 +461,12 @@ def main() -> int:
         save()
         log(f"FAIL soak: {error} → {out}")
         return 130
+
+    if soak_error is not None:
+        report["ok"] = False
+        save()
+        log(f"FAIL soak: {soak_error} → {out}")
+        return 1
 
     report["phases"]["soak"] = soak_checkpoint(soak_rounds, complete=True)
     save()
