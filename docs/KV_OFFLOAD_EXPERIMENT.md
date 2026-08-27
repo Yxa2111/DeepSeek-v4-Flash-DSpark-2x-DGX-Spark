@@ -1,8 +1,8 @@
 # NVMe KV offload experiment
 
-Status: Phase 0 scaffolding. Defaults remain `KV_OFFLOAD_MODE=off` and
-`DSPARK_SPECULATION=dspark`. Do not point the production service at an
-experimental image until the two-node cold-start gate passes.
+Status: Step 04 implementation. Defaults remain `KV_OFFLOAD_MODE=off` and
+`DSPARK_SPECULATION=dspark`. `fs-rank0` is an explicit opt-in and requires an
+Anemll image carrying patch 0005 or later.
 
 ## Repository boundary
 
@@ -18,17 +18,19 @@ experimental image until the two-node cold-start gate passes.
 
 | Variable | Default | Experimental value | Purpose |
 |---|---:|---:|---|
-| `KV_OFFLOAD_MODE` | `off` | `fs-poc` | Add `OffloadingConnector` with CPU staging and filesystem L2 |
+| `KV_OFFLOAD_MODE` | `off` | `fs-rank0` | Add filesystem L2 plus multi-node rank-zero staging |
 | `KV_OFFLOAD_ROOT` | node-local cache path | absolute path | Head-node NVMe directory |
 | `WORKER_KV_OFFLOAD_ROOT` | head value | absolute path | Worker-node NVMe directory |
 | `KV_OFFLOAD_CPU_BYTES` | `536870912` | bytes | Small UMA staging tier, not capacity expansion |
 | `KV_OFFLOAD_READ_THREADS` | `8` | 1-128 | Filesystem read-priority workers |
 | `KV_OFFLOAD_WRITE_THREADS` | `4` | 1-128 | Filesystem write-priority workers |
 | `KV_OFFLOAD_PYTHONHASHSEED` | `0` | fixed uint32 | Stable block filenames across restart |
+| `KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES` | `67108864` | 1-256 MiB | Hard upper bound for each TP relay payload |
 | `DSPARK_KV_OFFLOAD_DIAG` | `0` | `1` | Metadata-only Anemll packed/rank/key logs |
 | `DSPARK_SPECULATION` | `dspark` | `off` | Target-only control that omits `--speculative-config` |
 
-`fs-poc` deliberately uses `offload_prompt_only=true` and
+`fs-rank0` deliberately uses `offload_prompt_only=true`,
+`distributed_staging=rank0`, and
 `kv_load_failure_policy=recompute`. Decode-phase KV may be recomputed; a failed
 external load must not corrupt or terminate an Agent turn.
 
@@ -40,7 +42,7 @@ Create a private lab env from the current production env without editing the
 source file or printing its secrets:
 
 ```bash
-LAB_DSPARK_VLLM_IMAGE=dspark-vllm-gx10:kv-offload-diag-phase0 \
+LAB_DSPARK_VLLM_IMAGE=dspark-vllm-gx10:kv-offload-rank-zero-staging \
 LAB_WORKER_DIR=/home/yxa/kv-offload-lab/miaai \
 LAB_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/head \
 LAB_WORKER_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/worker \
@@ -49,8 +51,10 @@ LAB_WORKER_KV_OFFLOAD_ROOT=/home/yxa/kv-offload-lab/kv-cache/worker \
 ```
 
 The generated file is mode 600, removes old values for every experimental key,
-and appends one validated override for each. Use a separate Compose project
-name for the lab so its containers cannot alias the production project.
+and appends one validated override for each. Its safe first-boot profile is
+`MAX_MODEL_LEN=262144`, `MAX_NUM_SEQS=2`, 8192 batch tokens, no VL sidecar, no
+boot warmup, and `restart: no`. Use a separate Compose project name for the lab
+so its containers cannot alias the production project.
 
 ## First two-node matrix
 
@@ -59,8 +63,8 @@ Use identical token IDs and one test image digest for all rows:
 | Case | Offload | Speculation | What it isolates |
 |---|---|---|---|
 | A | off | dspark | unchanged runtime/control |
-| B | fs-poc | dspark | real DSpark packed store/restart/load path |
-| C | fs-poc | off | whether the DSpark draft group causes the miss |
+| B | fs-rank0 | dspark | real TP2 rank-zero store/restart/load path |
+| C | fs-rank0 | off | target-only correctness and DSpark variance control |
 
 For B and C:
 
@@ -81,7 +85,9 @@ requires all of the following:
 - `vllm:kv_offload_load_bytes` increases on the hot request;
 - both ranks reach the same terminal hit/load state;
 - hot TTFT is materially lower than cold TTFT;
-- generated output remains equal under the deterministic correctness probe;
+- target-only generated output remains equal under the deterministic
+  correctness probe; DSpark-on output is compared against its own repeat
+  variance and is not assumed bit-identical;
 - no diagnostic record reports `bounds_ok=false`.
 
 ## Decision sequence
@@ -95,3 +101,6 @@ requires all of the following:
    with per-group transfer geometry.
 5. After correctness, add disk capacity/eviction and measure write
    amplification before any production admission-control work.
+
+The completed Step 04 record and exact live measurements are in
+[`KV_OFFLOAD_PRODUCTION_STEP_04.md`](KV_OFFLOAD_PRODUCTION_STEP_04.md).

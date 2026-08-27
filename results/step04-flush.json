@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-08-27T02:19:20.969752+00:00",
+  "case": "step04-flush",
+  "phase": "repeat",
+  "base_url": "http://127.0.0.1:8888",
+  "model": "deepseek-v4-flash-0731",
+  "version": "0.25.2.dev0+g752a3a504.d20260714",
+  "sizes": [
+    1
+  ],
+  "seed": 53569,
+  "max_tokens": 1,
+  "settle_seconds": 20.0,
+  "token_pool_sha256": "6bc73bee501e65d9c01e9998fd142a82a13fbad74b4c0b503fe072569d119dd5",
+  "results": [
+    {
+      "target_tokens": 1,
+      "prompt_sha256": "c9c9dcbfd3496d4ac9f3ab1165da0fb7de4caa0b1870e24dec397512f5c68769",
+      "ttft_s": 0.09619948302861303,
+      "elapsed_s": 0.09637020505033433,
+      "usage": {
+        "prompt_tokens": 1,
+        "total_tokens": 2,
+        "completion_tokens": 1
+      },
+      "finish_reason": "length",
+      "completion_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "completion_bytes": 1,
+      "metrics_delta": {
+        "vllm:external_prefix_cache_queries_total": 1.0,
+        "vllm:prompt_tokens_by_source_total": 1.0,
+        "vllm:prompt_tokens_total": 1.0,
+        "vllm:request_prefill_kv_computed_tokens_bucket": 18.0,
+        "vllm:request_prefill_kv_computed_tokens_count": 1.0,
+        "vllm:request_prefill_kv_computed_tokens_sum": 1.0,
+        "vllm:request_prefill_time_seconds_bucket": 22.0,
+        "vllm:request_prefill_time_seconds_count": 1.0,
+        "vllm:request_prefill_time_seconds_sum": 0.09056129900272936
+      }
+    }
+  ]
+}

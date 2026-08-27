@@ -246,7 +246,8 @@ WORKER_DIR="${WORKER_SCRIPT_DIR:-${WORKER_DIR:-$SCRIPT_DIR}}"
 WORKER_HF_CACHE="${WORKER_HF_CACHE:-${HF_CACHE:-}}"
 KV_OFFLOAD_ROOT="${KV_OFFLOAD_ROOT:-$HOME/.cache/dspark-kv-offload}"
 WORKER_KV_OFFLOAD_ROOT="${WORKER_KV_OFFLOAD_ROOT:-$KV_OFFLOAD_ROOT}"
-if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
+if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ] \
+  || [ "${KV_OFFLOAD_MODE:-off}" = "fs-rank0" ]; then
   for _kv_root in "$KV_OFFLOAD_ROOT" "$WORKER_KV_OFFLOAD_ROOT"; do
     case "$_kv_root" in
       /*) ;;
@@ -813,9 +814,11 @@ print_resolved_profile() {
   echo "  mtp speculative tokens: ${MTP_NUM_TOKENS:-5} (dspark_block_size min is 5)"
   echo "  speculation: ${DSPARK_SPECULATION:-dspark}"
   echo "  KV offload: ${KV_OFFLOAD_MODE:-off} (diag ${DSPARK_KV_OFFLOAD_DIAG:-0})"
-  if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
+  if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ] \
+    || [ "${KV_OFFLOAD_MODE:-off}" = "fs-rank0" ]; then
     echo "  KV roots: head=$KV_OFFLOAD_ROOT worker=$WORKER_KV_OFFLOAD_ROOT"
     echo "  KV staging: ${KV_OFFLOAD_CPU_BYTES:-536870912} bytes; IO threads read=${KV_OFFLOAD_READ_THREADS:-8} write=${KV_OFFLOAD_WRITE_THREADS:-4}"
+    echo "  KV TP relay: rank0, max chunk ${KV_OFFLOAD_MAX_TRANSFER_CHUNK_BYTES:-67108864} bytes"
   fi
   echo "  default thinking: $DEFAULT_THINKING (off/low/high/max)"
   echo "  issue31 GPU thinking_token_budget hotfix: ${DSPARK_ENABLE_ISSUE31_GPU_HOTFIX:-0} (0=stock V2 / 1=apply)"
@@ -947,7 +950,8 @@ print_resolved_profile
 
 echo "Syncing DSpark deployment files to ${WORKER_HOST}:${WORKER_DIR}"
 ssh "$WORKER_HOST" "mkdir -p $REMOTE_WORKER_DIR"
-if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ]; then
+if [ "${KV_OFFLOAD_MODE:-off}" = "fs-poc" ] \
+  || [ "${KV_OFFLOAD_MODE:-off}" = "fs-rank0" ]; then
   # Docker creates a missing bind-mount source as root.  That is easy to hit
   # after first running the control case (offload disabled), because the
   # compose file still declares the KV volume.  Repair only the exact lab

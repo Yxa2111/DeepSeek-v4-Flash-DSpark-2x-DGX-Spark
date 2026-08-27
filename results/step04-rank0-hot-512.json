@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-08-27T02:35:19.768522+00:00",
+  "case": "step04-rank0-restore",
+  "phase": "hot",
+  "base_url": "http://127.0.0.1:8888",
+  "model": "deepseek-v4-flash-0731",
+  "version": "0.25.2.dev0+g752a3a504.d20260714",
+  "sizes": [
+    512
+  ],
+  "seed": 53569,
+  "max_tokens": 8,
+  "settle_seconds": 20.0,
+  "token_pool_sha256": "6bc73bee501e65d9c01e9998fd142a82a13fbad74b4c0b503fe072569d119dd5",
+  "results": [
+    {
+      "target_tokens": 512,
+      "prompt_sha256": "98eca1de1a8406216ccd6318299a320abd17823e4d963103342cfeec8619db91",
+      "ttft_s": 0.4400334359379485,
+      "elapsed_s": 0.8631826379569247,
+      "usage": {
+        "prompt_tokens": 512,
+        "total_tokens": 520,
+        "completion_tokens": 8
+      },
+      "finish_reason": "length",
+      "completion_sha256": "b0b45ba18fd47d939951e5c6ed7a0fc3d3df43c93031b0ac4ae9c9939a2c7518",
+      "completion_bytes": 20,
+      "metrics_delta": {
+        "vllm:external_prefix_cache_queries_total": 512.0,
+        "vllm:kv_offload_size_bucket": 12.0,
+        "vllm:kv_offload_size_count": 2.0,
+        "vllm:kv_offload_size_sum": 95921280.0,
+        "vllm:kv_offload_store_bytes_total": 95921280.0,
+        "vllm:kv_offload_store_size_bucket": 12.0,
+        "vllm:kv_offload_store_size_count": 2.0,
+        "vllm:kv_offload_store_size_sum": 95921280.0,
+        "vllm:kv_offload_store_time_total": 0.0022230400443077085,
+        "vllm:kv_offload_total_bytes_total": 95921280.0,
+        "vllm:kv_offload_total_time_total": 0.0022230400443077085,
+        "vllm:prompt_tokens_by_source_total": 512.0,
+        "vllm:prompt_tokens_total": 512.0,
+        "vllm:request_prefill_kv_computed_tokens_bucket": 9.0,
+        "vllm:request_prefill_kv_computed_tokens_count": 1.0,
+        "vllm:request_prefill_kv_computed_tokens_sum": 512.0,
+        "vllm:request_prefill_time_seconds_bucket": 21.0,
+        "vllm:request_prefill_time_seconds_count": 1.0,
+        "vllm:request_prefill_time_seconds_sum": 0.43222445191349834
+      }
+    }
+  ]
+}
