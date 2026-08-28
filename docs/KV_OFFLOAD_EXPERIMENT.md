@@ -163,3 +163,6 @@ cancellation convergence result are in
 The isolated 1M startup failure, NVRM/guard evidence and exact safe-profile
 rollback are in
 [`KV_OFFLOAD_PRODUCTION_STEP_33.md`](KV_OFFLOAD_PRODUCTION_STEP_33.md).
+The bounded vLLM Prometheus metric surface and live TP=2 store/restart-load
+counter proof are in
+[`KV_OFFLOAD_PRODUCTION_STEP_34.md`](KV_OFFLOAD_PRODUCTION_STEP_34.md).

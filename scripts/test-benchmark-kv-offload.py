@@ -28,6 +28,28 @@ class FakeResponse:
 
 
 class BenchmarkKVOffloadTest(unittest.TestCase):
+    def test_request_headers_use_first_configured_key_without_logging_it(self):
+        with mock.patch.dict(
+            MODULE.os.environ,
+            {"DSPARK_API_KEYS": "first-key second-key"},
+            clear=True,
+        ):
+            headers = MODULE.request_headers(json_body=True)
+        self.assertEqual(headers["Authorization"], "Bearer first-key")
+        self.assertEqual(headers["Content-Type"], "application/json")
+
+    def test_vllm_api_key_takes_precedence(self):
+        with mock.patch.dict(
+            MODULE.os.environ,
+            {
+                "DSPARK_API_KEYS": "configured-key",
+                "VLLM_API_KEY": "legacy-key",
+            },
+            clear=True,
+        ):
+            headers = MODULE.request_headers()
+        self.assertEqual(headers, {"Authorization": "Bearer legacy-key"})
+
     def test_metric_parser_sums_labels_and_filters(self):
         parsed = MODULE.parse_metrics(
             """

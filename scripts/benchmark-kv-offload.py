@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import random
 import re
@@ -31,17 +32,36 @@ METRIC_RE = re.compile(
 )
 
 
+def request_headers(*, json_body: bool = False) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"} if json_body else {}
+    api_key = os.environ.get("VLLM_API_KEY", "")
+    if not api_key:
+        configured_keys = os.environ.get("DSPARK_API_KEYS", "").split()
+        api_key = configured_keys[0] if configured_keys else ""
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
 def request_json(url: str, body: dict[str, object] | None = None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"} if data else {}
     with urllib.request.urlopen(
-        urllib.request.Request(url, data=data, headers=headers), timeout=60
+        urllib.request.Request(
+            url,
+            data=data,
+            headers=request_headers(json_body=data is not None),
+        ),
+        timeout=60,
     ) as response:
         return json.load(response)
 
 
 def fetch_metrics(base_url: str) -> dict[str, float]:
-    with urllib.request.urlopen(f"{base_url}/metrics", timeout=60) as response:
+    request = urllib.request.Request(
+        f"{base_url}/metrics",
+        headers=request_headers(),
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
         text = response.read().decode("utf-8", "replace")
     return parse_metrics(text)
 
@@ -95,7 +115,7 @@ def run_completion(
     request = urllib.request.Request(
         f"{base_url}/v1/completions",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        headers=request_headers(json_body=True),
     )
     started = time.perf_counter()
     first_event: float | None = None
